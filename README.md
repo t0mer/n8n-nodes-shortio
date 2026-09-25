@@ -76,8 +76,8 @@ scoped to one domain won't list or resolve others. The credential test calls
 | Create Many | Up to 1000 links per call, paced at 5 calls / 10 s. Requests are grouped by domain and folder first, since a single call can only carry one domain and one folder. If a call fails without Continue On Fail, the error reports how many links were already created. |
 | Delete | |
 | Delete Many | Up to 150 links per call, paced at 1 call / s |
-| Generate QR Code | Binary image output. The node downloads the QR image Short.io generates (format follows the Type option) only from Short.io's QR host (`shortiougc.com`); the API key is never sent to that download |
-| Generate QR Codes (Many) | Up to 150 links per call; binary output, one ZIP per call. Same `shortiougc.com`-only, credential-free download as Generate QR Code |
+| Generate QR Code | Binary image output. The image bytes are returned directly by Short.io in the same request (no separate download, no third-party host); the MIME type and extension follow the Type option |
+| Generate QR Codes (Many) | Up to 150 links per call; binary output, one ZIP per call, returned directly by Short.io the same way as Generate QR Code |
 | Get | |
 | Get by Original URL | Returns every link created for that URL |
 | Get by Path | Resolves a full short link (domain + path) to its link record |

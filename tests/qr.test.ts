@@ -32,121 +32,83 @@ function authCalls(exec: IExecuteFunctions) {
 	).mock.calls.map(([, opts]) => opts);
 }
 
-function directCalls(exec: IExecuteFunctions) {
-	return (
-		exec.helpers.httpRequest as unknown as {
-			mock: { calls: Array<[{ method: string; url: string; encoding?: string }]> };
-		}
-	).mock.calls.map(([opts]) => opts);
-}
-
-function mockDownload(exec: IExecuteFunctions, value: { body: unknown; headers?: Record<string, string> }) {
-	(
-		exec.helpers.httpRequest as unknown as { mockResolvedValueOnce: (v: unknown) => void }
-	).mockResolvedValueOnce(value);
-}
-
 const link = (id: string) => ({ __rl: true, mode: 'id', value: id });
 const domain = (id: string) => ({ __rl: true, mode: 'id', value: id });
 
+const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xde, 0xad]);
+const SVG_BYTES = Buffer.from('<?xml version="1.0" encoding="utf-8"?><svg></svg>');
+
 describe('link generate QR code', () => {
-	it('downloads a {url} response without credentials and builds the binary from it', async () => {
+	it('requests the image with a POST and a wildcard Accept header, in binary mode', async () => {
 		const exec = fakeExec(
 			{ link: link('lnk_abc_d'), options: { color: '#FF0000', type: 'svg' } },
-			[{ statusCode: 200, body: { url: 'https://shortiougc.com/qr-code-link/s.gy/lnk_abc_d' } }],
+			[{ statusCode: 201, body: SVG_BYTES }],
 		);
-		mockDownload(exec, {
-			body: Buffer.from('<svg></svg>'),
-			headers: { 'content-type': 'image/svg+xml' },
-		});
 
-		const [item] = await generateQrCode.call(exec, 0);
+		await generateQrCode.call(exec, 0);
 
 		expect(authCalls(exec)).toEqual([
 			expect.objectContaining({
 				method: 'POST',
 				url: 'https://api.short.io/links/qr/lnk_abc_d',
 				body: { color: 'FF0000', type: 'svg', useDomainSettings: true }, // '#' stripped for the API
+				headers: { Accept: '*/*' },
+				encoding: 'arraybuffer',
 			}),
 		]);
+	});
 
-		// The image download goes through plain httpRequest, never httpRequestWithAuthentication.
-		expect(exec.helpers.httpRequestWithAuthentication).toHaveBeenCalledTimes(1);
-		expect(exec.helpers.httpRequest).toHaveBeenCalledTimes(1);
-		expect(directCalls(exec)[0]).toMatchObject({
-			method: 'GET',
-			url: 'https://shortiougc.com/qr-code-link/s.gy/lnk_abc_d',
-			encoding: 'arraybuffer',
-		});
+	it('returns PNG bytes directly as image/png with a .png extension, never calling httpRequest', async () => {
+		const exec = fakeExec({ link: link('lnk_abc_d') }, [{ statusCode: 201, body: PNG_BYTES }]);
 
-		expect(item.json).toEqual({
-			idString: 'lnk_abc_d',
-			url: 'https://shortiougc.com/qr-code-link/s.gy/lnk_abc_d',
-			type: 'svg',
-			requestedType: 'svg',
-		});
+		const [item] = await generateQrCode.call(exec, 0);
+
+		expect(item.json).toEqual({ idString: 'lnk_abc_d', type: 'png', requestedType: 'png' });
+		expect(item.binary?.data).toMatchObject({ fileName: 'qr-lnk_abc_d.png', mimeType: 'image/png' });
+		expect(item.binary?.data).toMatchObject({ data: PNG_BYTES.toString('base64') });
+		expect(exec.helpers.httpRequest).not.toHaveBeenCalled();
+	});
+
+	it('returns SVG bytes directly as image/svg+xml with a .svg extension, never calling httpRequest', async () => {
+		const exec = fakeExec({ link: link('lnk_abc_d'), options: { type: 'svg' } }, [
+			{ statusCode: 201, body: SVG_BYTES },
+		]);
+
+		const [item] = await generateQrCode.call(exec, 0);
+
+		expect(item.json).toEqual({ idString: 'lnk_abc_d', type: 'svg', requestedType: 'svg' });
 		expect(item.binary?.data).toMatchObject({ fileName: 'qr-lnk_abc_d.svg', mimeType: 'image/svg+xml' });
+		expect(exec.helpers.httpRequest).not.toHaveBeenCalled();
+	});
+
+	it('detects a type mismatch from magic bytes and labels the actual type, keeping requestedType', async () => {
+		// A stale/mismatched response: PNG bytes come back for an SVG request.
+		const exec = fakeExec({ link: link('lnk_abc_d'), options: { type: 'svg' } }, [
+			{ statusCode: 201, body: PNG_BYTES },
+		]);
+
+		const [item] = await generateQrCode.call(exec, 0);
+
+		expect(item.json).toEqual({ idString: 'lnk_abc_d', type: 'png', requestedType: 'svg' });
+		expect(item.binary?.data).toMatchObject({ fileName: 'qr-lnk_abc_d.png', mimeType: 'image/png' });
+	});
+
+	it('falls back to the requested type when the bytes match neither signature', async () => {
+		const exec = fakeExec({ link: link('lnk_abc_d'), options: { type: 'svg' } }, [
+			{ statusCode: 201, body: Buffer.from('not an image') },
+		]);
+
+		const [item] = await generateQrCode.call(exec, 0);
+
+		expect(item.json).toEqual({ idString: 'lnk_abc_d', type: 'svg', requestedType: 'svg' });
 	});
 
 	it('sends only useDomainSettings (default true) when no options are set', async () => {
-		const exec = fakeExec({ link: link('lnk_x_y') }, [
-			{ statusCode: 200, body: { url: 'https://shortiougc.com/qr-code-link/s.gy/lnk_x_y' } },
-		]);
-		mockDownload(exec, { body: Buffer.from('png-bytes'), headers: { 'content-type': 'image/png' } });
+		const exec = fakeExec({ link: link('lnk_x_y') }, [{ statusCode: 201, body: PNG_BYTES }]);
 
 		await generateQrCode.call(exec, 0);
 
 		expect(authCalls(exec)[0].body).toEqual({ useDomainSettings: true });
-	});
-
-	it('rejects a non-HTTPS QR url and never downloads it', async () => {
-		const exec = fakeExec({ link: link('lnk_abc_d') }, [
-			{ statusCode: 200, body: { url: 'http://shortiougc.com/qr-code-link/s.gy/lnk_abc_d' } },
-		]);
-
-		await expect(generateQrCode.call(exec, 0)).rejects.toThrow(NodeOperationError);
-		expect(exec.helpers.httpRequest).not.toHaveBeenCalled();
-	});
-
-	it('rejects a QR url on a host other than shortiougc.com and never downloads it', async () => {
-		const exec = fakeExec({ link: link('lnk_abc_d') }, [
-			{ statusCode: 200, body: { url: 'https://evil.example/qr-code-link/s.gy/lnk_abc_d' } },
-		]);
-
-		const error = (await generateQrCode.call(exec, 0).catch((e: unknown) => e)) as NodeOperationError;
-		expect(error).toBeInstanceOf(NodeOperationError);
-		expect(error.message).toMatch(/evil\.example/);
-		expect(exec.helpers.httpRequest).not.toHaveBeenCalled();
-	});
-
-	it('accepts a shortiougc.com subdomain host', async () => {
-		const exec = fakeExec({ link: link('lnk_abc_d') }, [
-			{ statusCode: 200, body: { url: 'https://cdn.shortiougc.com/qr-code-link/s.gy/lnk_abc_d' } },
-		]);
-		mockDownload(exec, { body: Buffer.from('png-bytes'), headers: { 'content-type': 'image/png' } });
-
-		const [item] = await generateQrCode.call(exec, 0);
-
-		expect(item.json.url).toBe('https://cdn.shortiougc.com/qr-code-link/s.gy/lnk_abc_d');
-	});
-
-	it('rejects a QR url that embeds credentials and never downloads it', async () => {
-		const exec = fakeExec({ link: link('lnk_abc_d') }, [
-			{ statusCode: 200, body: { url: 'https://user:pass@shortiougc.com/qr-code-link/s.gy/lnk_abc_d' } },
-		]);
-
-		const error = (await generateQrCode.call(exec, 0).catch((e: unknown) => e)) as NodeOperationError;
-		expect(error).toBeInstanceOf(NodeOperationError);
-		expect(exec.helpers.httpRequest).not.toHaveBeenCalled();
-	});
-
-	it('rejects a response with no string url', async () => {
-		const exec = fakeExec({ link: link('lnk_abc_d') }, [{ statusCode: 200, body: { ok: true } }]);
-
-		const error = (await generateQrCode.call(exec, 0).catch((e: unknown) => e)) as NodeOperationError;
-		expect(error).toBeInstanceOf(NodeOperationError);
-		expect(error.message).toMatch(/Unexpected QR code response from Short\.io/);
-		expect(exec.helpers.httpRequest).not.toHaveBeenCalled();
 	});
 
 	it('rejects an empty binaryPropertyName without calling the API', async () => {
@@ -158,23 +120,11 @@ describe('link generate QR code', () => {
 		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
 	});
 
-	it('falls back to the requested type for the MIME/extension when no content-type header is present', async () => {
-		const exec = fakeExec({ link: link('lnk_abc_d'), options: { type: 'svg' } }, [
-			{ statusCode: 200, body: { url: 'https://shortiougc.com/qr-code-link/s.gy/lnk_abc_d' } },
-		]);
-		mockDownload(exec, { body: Buffer.from('<svg></svg>') });
-
-		const [item] = await generateQrCode.call(exec, 0);
-
-		expect(item.binary?.data).toMatchObject({ fileName: 'qr-lnk_abc_d.svg', mimeType: 'image/svg+xml' });
-	});
-
 	it('respects a custom binaryPropertyName', async () => {
 		const exec = fakeExec(
 			{ link: link('lnk_abc_d'), binaryPropertyName: ' qrImage ' },
-			[{ statusCode: 200, body: { url: 'https://shortiougc.com/qr-code-link/s.gy/lnk_abc_d' } }],
+			[{ statusCode: 201, body: PNG_BYTES }],
 		);
-		mockDownload(exec, { body: Buffer.from('png-bytes'), headers: { 'content-type': 'image/png' } });
 
 		const [item] = await generateQrCode.call(exec, 0);
 

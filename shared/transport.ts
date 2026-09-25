@@ -26,6 +26,7 @@ export interface ShortIoRequest {
 	qs?: IDataObject;
 	body?: IDataObject | unknown[];
 	binary?: boolean;
+	headers?: IDataObject;
 	resource?: string;
 	itemIndex?: number;
 }
@@ -125,6 +126,7 @@ export async function shortIoRequest<T = unknown>(
 		...(req.qs !== undefined ? { qs: req.qs } : {}),
 		...(req.body !== undefined ? { body: req.body } : {}),
 		...(req.binary ? { encoding: 'arraybuffer' as const } : {}),
+		...(req.headers !== undefined ? { headers: req.headers as Record<string, string> } : {}),
 	};
 
 	for (let attempt = 1; ; attempt++) {

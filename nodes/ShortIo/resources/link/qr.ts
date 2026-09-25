@@ -5,8 +5,12 @@ import { BULK_LIMITS, forEachChunk } from '../../../../shared/bulk';
 import { collect, errorItem, flatten, newSlots, toItemError } from './bulk';
 import { compact } from '../../../../shared/fields';
 import { resolveDomainId, resolveLinkId } from '../../../../shared/locators';
-import { getHeader, shortIoRequest } from '../../../../shared/transport';
+import { shortIoRequest } from '../../../../shared/transport';
 import type { BatchHandler } from '../../../../shared/types';
+
+/** Requests the raw image bytes instead of Short.io's default `{url}` JSON response, which points
+ * at a per-link CDN object that stays stale across regenerations with a different type/options. */
+const ACCEPT_RAW_IMAGE: IDataObject = { Accept: '*/*' };
 
 interface QrOptions {
 	backgroundColor?: string;
@@ -25,77 +29,31 @@ function stripHash(hex: string | undefined): string | undefined {
 	return hex?.replace(/^#/, '');
 }
 
-/** Resolves the binary MIME type and file extension for a QR image from its content-type header,
- * falling back to the requested image type when the header is absent or unrecognized. */
-function mimeAndExt(contentType: string | undefined, requestedType: string): { mime: string; ext: string } {
-	const mime = contentType?.split(';')[0]?.trim() || (requestedType === 'svg' ? 'image/svg+xml' : 'image/png');
-	const ext = mime.includes('svg') ? 'svg' : mime.includes('png') ? 'png' : requestedType;
-	return { mime, ext };
-}
-
-/** The only host the QR image download is ever allowed to reach, so the API key (never sent to
- * it) has no chance of being redirected somewhere else via a manipulated response. */
-const ALLOWED_QR_HOST = 'shortiougc.com';
-
-function isAllowedQrHost(hostname: string): boolean {
-	return hostname === ALLOWED_QR_HOST || hostname.endsWith(`.${ALLOWED_QR_HOST}`);
-}
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
 /**
- * Resolves `POST /links/qr/{id}`'s `{ url }` response to image bytes, downloading it without
- * credentials (`this.helpers.httpRequest`, never `httpRequestWithAuthentication`) so the API key
- * is never sent to the third-party image host. The url must be `https:`, on `shortiougc.com` (or
- * a subdomain), and carry no embedded credentials; anything else is refused before any request is
- * sent. A response without a string `url` is rejected outright.
+ * Sanity-checks the requested image type against the response bytes' magic number, so a stale or
+ * mismatched response is still labeled correctly: PNG starts with the `\x89PNG` signature, SVG is
+ * XML text containing `<svg` (an XML prolog may precede it). Falls back to the requested type when
+ * neither signature is recognized (can't tell, so trust the request).
  */
-async function resolveQrImage(
-	this: IExecuteFunctions,
-	response: unknown,
-	i: number,
-): Promise<{ buffer: Buffer; contentType?: string; url: string }> {
-	if (!(response && typeof response === 'object' && typeof (response as IDataObject).url === 'string')) {
-		throw new NodeOperationError(this.getNode(), 'Unexpected QR code response from Short.io', {
-			itemIndex: i,
-		});
-	}
-	const url = (response as { url: string }).url;
-
-	let parsed: URL;
-	try {
-		parsed = new URL(url);
-	} catch {
-		throw new NodeOperationError(this.getNode(), `The QR code URL is not valid: ${url}`, {
-			itemIndex: i,
-		});
-	}
-	if (
-		parsed.protocol !== 'https:' ||
-		!isAllowedQrHost(parsed.hostname) ||
-		parsed.username ||
-		parsed.password
-	) {
-		throw new NodeOperationError(
-			this.getNode(),
-			`Refusing to download the QR code image from disallowed host "${parsed.hostname}"`,
-			{ itemIndex: i },
-		);
+function resolveImageType(data: Buffer, requestedType: 'png' | 'svg'): { type: 'png' | 'svg'; mime: string; ext: string } {
+	let detected: 'png' | 'svg' | undefined;
+	if (data.subarray(0, PNG_MAGIC.length).equals(PNG_MAGIC)) {
+		detected = 'png';
+	} else if (data.toString('utf8', 0, Math.min(data.length, 512)).includes('<svg')) {
+		detected = 'svg';
 	}
 
-	const download = (await this.helpers.httpRequest({
-		method: 'GET',
-		url: parsed.href,
-		encoding: 'arraybuffer',
-		returnFullResponse: true,
-	})) as { body: ArrayBuffer; headers?: Record<string, string> };
-
-	return {
-		buffer: Buffer.from(download.body),
-		contentType: getHeader(download.headers, 'content-type'),
-		url,
-	};
+	const type = detected ?? requestedType;
+	return { type, mime: type === 'svg' ? 'image/svg+xml' : 'image/png', ext: type };
 }
 
-/** Generate QR Code: `POST /links/qr/{id}`, downloads the resulting image, and returns it as binary. */
+/** Generate QR Code: `POST /links/qr/{id}` with a wildcard Accept header, returning the response's
+ * raw image bytes directly as binary data. Short.io's default JSON-Accept response is a `{url}`
+ * pointing at a CDN object cached per link (not per type/options), so a regenerated QR with a
+ * different type or options comes back stale; requesting the raw bytes avoids that and needs no
+ * third-party download. */
 export async function generateQrCode(
 	this: IExecuteFunctions,
 	i: number,
@@ -123,23 +81,24 @@ export async function generateQrCode(
 		useDomainSettings: options.useDomainSettings ?? true,
 	};
 
-	const response = await shortIoRequest.call(this, {
+	const { data } = (await shortIoRequest.call(this, {
 		method: 'POST',
 		path: `/links/qr/${id}`,
 		body,
 		resource: 'link',
 		itemIndex: i,
-	});
+		binary: true,
+		headers: ACCEPT_RAW_IMAGE,
+	})) as { data: Buffer };
 
-	const { buffer, contentType, url } = await resolveQrImage.call(this, response, i);
-	const { mime, ext } = mimeAndExt(contentType, requestedType);
+	const { type, mime, ext } = resolveImageType(data, requestedType);
 
 	return [
 		{
-			json: { idString: id, url, type: ext, requestedType },
+			json: { idString: id, type, requestedType },
 			binary: {
 				[binaryPropertyName]: await this.helpers.prepareBinaryData(
-					buffer,
+					data,
 					`qr-${id}.${ext}`,
 					mime,
 				),
@@ -207,6 +166,7 @@ export const generateQrCodesMany: BatchHandler = async function (
 				resource: 'link',
 				itemIndex: indices[0],
 				binary: true,
+				headers: ACCEPT_RAW_IMAGE,
 			})) as { data: Buffer };
 
 			chunkItems.push({
