@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest';
+import { NodeOperationError } from 'n8n-workflow';
+import type { IExecuteFunctions } from 'n8n-workflow';
 
-import { buildLinkBody, compact, LINK_DATE_FIELDS, normalizeTags, toIsoDate } from '../shared/fields';
+import {
+	buildLinkBody,
+	compact,
+	LINK_DATE_FIELDS,
+	normalizeTags,
+	requireOriginalUrl,
+	toIsoDate,
+	unwrapOrSuccess,
+} from '../shared/fields';
+import { fakeCtx } from './helpers';
+
+function fakeThis(): IExecuteFunctions {
+	return fakeCtx([]) as unknown as IExecuteFunctions;
+}
 
 describe('toIsoDate', () => {
 	it('passes an ISO string through as an ISO string', () => {
@@ -249,5 +264,47 @@ describe('buildLinkBody', () => {
 			clicksLimit: 0,
 			archived: false,
 		});
+	});
+});
+
+describe('requireOriginalUrl', () => {
+	it('returns the trimmed value when non-empty', () => {
+		expect(requireOriginalUrl.call(fakeThis(), '  https://example.com  ', 0)).toBe(
+			'https://example.com',
+		);
+	});
+
+	it('throws NodeOperationError for an empty string', () => {
+		expect(() => requireOriginalUrl.call(fakeThis(), '', 0)).toThrow(NodeOperationError);
+	});
+
+	it('throws NodeOperationError for a whitespace-only string', () => {
+		expect(() => requireOriginalUrl.call(fakeThis(), '   ', 0)).toThrow(NodeOperationError);
+	});
+
+	it('throws NodeOperationError for undefined', () => {
+		expect(() => requireOriginalUrl.call(fakeThis(), undefined, 0)).toThrow(NodeOperationError);
+	});
+});
+
+describe('unwrapOrSuccess', () => {
+	it('returns the response as-is when it is a non-empty, non-array object', () => {
+		expect(unwrapOrSuccess({ id: 'abc', ok: true })).toEqual({ id: 'abc', ok: true });
+	});
+
+	it('returns {success: true} for an empty object', () => {
+		expect(unwrapOrSuccess({})).toEqual({ success: true });
+	});
+
+	it('returns {success: true} for null', () => {
+		expect(unwrapOrSuccess(null)).toEqual({ success: true });
+	});
+
+	it('returns {success: true} for an array response', () => {
+		expect(unwrapOrSuccess([{ id: 'abc' }])).toEqual({ success: true });
+	});
+
+	it('returns {success: true} for a non-object response', () => {
+		expect(unwrapOrSuccess('unexpected')).toEqual({ success: true });
 	});
 });

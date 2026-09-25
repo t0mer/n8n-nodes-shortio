@@ -1,8 +1,7 @@
 import type { ILoadOptionsFunctions, INodePropertyOptions } from 'n8n-workflow';
 
+import { COUNTRY_CODE_RE } from '../../../shared/locators';
 import { shortIoRequest } from '../../../shared/transport';
-
-const COUNTRY_RE = /^[A-Z]{2}$/;
 
 interface RegionItem {
 	id: string;
@@ -17,7 +16,7 @@ interface RegionItem {
 export async function getRegions(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 	const countryParam = this.getCurrentNodeParameter('country');
 	const country = String(countryParam ?? '').trim().toUpperCase();
-	if (!COUNTRY_RE.test(country)) {
+	if (!COUNTRY_CODE_RE.test(country)) {
 		return [];
 	}
 

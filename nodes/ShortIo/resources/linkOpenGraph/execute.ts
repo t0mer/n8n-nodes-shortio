@@ -1,6 +1,7 @@
 import { NodeOperationError } from 'n8n-workflow';
 import type { IDataObject, IExecuteFunctions, INodeExecutionData } from 'n8n-workflow';
 
+import { unwrapOrSuccess } from '../../../../shared/fields';
 import { resolveDomainId, resolveLinkId } from '../../../../shared/locators';
 import { shortIoRequest } from '../../../../shared/transport';
 import type { OperationEntry } from '../../../../shared/types';
@@ -55,13 +56,7 @@ async function set(this: IExecuteFunctions, i: number): Promise<INodeExecutionDa
 		itemIndex: i,
 	});
 
-	const result: IDataObject = { success: true };
-	if (response !== null && typeof response === 'object' && !Array.isArray(response)) {
-		const responseBody = response as IDataObject;
-		if (Object.keys(responseBody).length > 0) {
-			Object.assign(result, responseBody);
-		}
-	}
+	const result: IDataObject = { success: true, ...unwrapOrSuccess(response) };
 
 	return this.helpers.returnJsonArray(result);
 }

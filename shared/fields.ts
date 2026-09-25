@@ -1,4 +1,5 @@
-import type { IDataObject, INodeParameterResourceLocator } from 'n8n-workflow';
+import { NodeOperationError } from 'n8n-workflow';
+import type { IDataObject, IExecuteFunctions, INodeParameterResourceLocator } from 'n8n-workflow';
 
 import { locatorValue } from './locators';
 
@@ -146,4 +147,34 @@ export function buildLinkBody(fields: IDataObject): IDataObject {
 	}
 
 	return compact(result);
+}
+
+/**
+ * Validates that `value` is a non-empty string (after trimming) and returns it, throwing
+ * `NodeOperationError` otherwise. Used for the required "Original URL" field on the country/
+ * region targeting Create and Create Many operations.
+ */
+export function requireOriginalUrl(this: IExecuteFunctions, value: unknown, i: number): string {
+	const raw = String(value ?? '').trim();
+	if (!raw) {
+		throw new NodeOperationError(this.getNode(), 'Original URL is required', { itemIndex: i });
+	}
+	return raw;
+}
+
+/**
+ * Unwraps a Short.io response: returns it as-is when it's a non-array object with at least one
+ * key, otherwise a bare `{success: true}`. Several endpoints (undocumented response schema) fall
+ * back to this same shape.
+ */
+export function unwrapOrSuccess(response: unknown): IDataObject {
+	if (
+		response !== null &&
+		typeof response === 'object' &&
+		!Array.isArray(response) &&
+		Object.keys(response as object).length > 0
+	) {
+		return response as IDataObject;
+	}
+	return { success: true };
 }

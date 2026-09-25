@@ -30,6 +30,9 @@ function run(entry: (typeof linkRegionHandlers)[string], exec: IExecuteFunctions
 }
 
 const LINK = { __rl: true, mode: 'id', value: 'lnk_abc_d' };
+// URL mode makes `resolveLinkId` call `GET /links/expand`; these values prove validation runs
+// BEFORE that lookup (see tests below), not just before the id-mode's local, HTTP-free check.
+const LINK_URL = { __rl: true, mode: 'url', value: 'https://s.gy/abc' };
 
 describe('link region create', () => {
 	it('sends POST /link_region/{linkId} with {country, region, originalURL}', async () => {
@@ -82,6 +85,16 @@ describe('link region create', () => {
 
 	it('rejects a missing Original URL and makes no HTTP call', async () => {
 		const exec = fakeExec({ link: LINK, country: 'US', region: 'CA', originalURL: '' }, []);
+
+		await expect(run(linkRegionHandlers.create, exec, 0)).rejects.toThrow(NodeOperationError);
+		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
+
+	it('validates the region before resolving a URL-mode link (no /links/expand call)', async () => {
+		const exec = fakeExec(
+			{ link: LINK_URL, country: 'US', region: '../..', originalURL: 'https://example.com' },
+			[],
+		);
 
 		await expect(run(linkRegionHandlers.create, exec, 0)).rejects.toThrow(NodeOperationError);
 		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
@@ -144,6 +157,19 @@ describe('link region create many', () => {
 		await expect(run(linkRegionHandlers.createMany, exec, 0)).rejects.toThrow(NodeOperationError);
 		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
 	});
+
+	it('validates target regions before resolving a URL-mode link (no /links/expand call)', async () => {
+		const exec = fakeExec(
+			{
+				link: LINK_URL,
+				targets: { target: [{ country: 'US', region: '../etc', originalURL: 'https://example.com' }] },
+			},
+			[],
+		);
+
+		await expect(run(linkRegionHandlers.createMany, exec, 0)).rejects.toThrow(NodeOperationError);
+		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
 });
 
 describe('link region delete', () => {
@@ -165,6 +191,13 @@ describe('link region delete', () => {
 
 	it('rejects an invalid region code and makes no HTTP call', async () => {
 		const exec = fakeExec({ link: LINK, country: 'US', region: 'toolong' }, []);
+
+		await expect(run(linkRegionHandlers.delete, exec, 0)).rejects.toThrow(NodeOperationError);
+		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
+
+	it('validates the region before resolving a URL-mode link (no /links/expand call)', async () => {
+		const exec = fakeExec({ link: LINK_URL, country: 'US', region: 'toolong' }, []);
 
 		await expect(run(linkRegionHandlers.delete, exec, 0)).rejects.toThrow(NodeOperationError);
 		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();

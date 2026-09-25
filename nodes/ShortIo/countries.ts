@@ -237,7 +237,7 @@ const RAW_COUNTRIES: Country[] = [
 	{ code: 'TM', name: 'Turkmenistan' },
 	{ code: 'TN', name: 'Tunisia' },
 	{ code: 'TO', name: 'Tonga' },
-	{ code: 'TR', name: 'Turkey' },
+	{ code: 'TR', name: 'Türkiye' },
 	{ code: 'TT', name: 'Trinidad and Tobago' },
 	{ code: 'TV', name: 'Tuvalu' },
 	{ code: 'TW', name: 'Taiwan' },

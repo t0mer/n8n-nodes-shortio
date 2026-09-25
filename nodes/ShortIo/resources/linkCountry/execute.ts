@@ -1,6 +1,7 @@
 import { NodeOperationError } from 'n8n-workflow';
 import type { IDataObject, IExecuteFunctions, INodeExecutionData } from 'n8n-workflow';
 
+import { requireOriginalUrl, unwrapOrSuccess } from '../../../../shared/fields';
 import { resolveCountryCode, resolveLinkId } from '../../../../shared/locators';
 import { shortIoRequest } from '../../../../shared/transport';
 import type { OperationEntry } from '../../../../shared/types';
@@ -10,21 +11,13 @@ interface CountryTarget {
 	originalURL: string;
 }
 
-function requireOriginalUrl(this: IExecuteFunctions, value: unknown, i: number): string {
-	const raw = String(value ?? '').trim();
-	if (!raw) {
-		throw new NodeOperationError(this.getNode(), 'Original URL is required', { itemIndex: i });
-	}
-	return raw;
-}
-
 async function create(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
 	const linkParam = this.getNodeParameter('link', i);
 	const countryParam = this.getNodeParameter('country', i);
 	const originalURL = requireOriginalUrl.call(this, this.getNodeParameter('originalURL', i, ''), i);
+	const country = resolveCountryCode.call(this, countryParam, i);
 
 	const id = await resolveLinkId.call(this, linkParam, i);
-	const country = resolveCountryCode.call(this, countryParam, i);
 
 	const response = await shortIoRequest.call(this, {
 		method: 'POST',
@@ -34,15 +27,7 @@ async function create(this: IExecuteFunctions, i: number): Promise<INodeExecutio
 		itemIndex: i,
 	});
 
-	const result: IDataObject =
-		response !== null &&
-		typeof response === 'object' &&
-		!Array.isArray(response) &&
-		Object.keys(response as object).length > 0
-			? (response as IDataObject)
-			: { success: true };
-
-	return this.helpers.returnJsonArray(result);
+	return this.helpers.returnJsonArray(unwrapOrSuccess(response));
 }
 
 async function createMany(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
@@ -54,12 +39,12 @@ async function createMany(this: IExecuteFunctions, i: number): Promise<INodeExec
 		throw new NodeOperationError(this.getNode(), 'Add at least one target', { itemIndex: i });
 	}
 
-	const id = await resolveLinkId.call(this, linkParam, i);
-
 	const body = targets.map((target) => ({
 		country: resolveCountryCode.call(this, target.country, i),
 		originalURL: requireOriginalUrl.call(this, target.originalURL, i),
 	}));
+
+	const id = await resolveLinkId.call(this, linkParam, i);
 
 	const response = await shortIoRequest.call(this, {
 		method: 'POST',
@@ -78,9 +63,9 @@ async function createMany(this: IExecuteFunctions, i: number): Promise<INodeExec
 async function del(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
 	const linkParam = this.getNodeParameter('link', i);
 	const countryParam = this.getNodeParameter('country', i);
+	const country = resolveCountryCode.call(this, countryParam, i);
 
 	const id = await resolveLinkId.call(this, linkParam, i);
-	const country = resolveCountryCode.call(this, countryParam, i);
 
 	const response = await shortIoRequest.call(this, {
 		method: 'DELETE',

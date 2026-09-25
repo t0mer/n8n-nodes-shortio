@@ -172,7 +172,7 @@ export function resolveFolderId(this: IExecuteFunctions, param: unknown, i: numb
 	return raw;
 }
 
-const COUNTRY_CODE_RE = /^[A-Z]{2}$/;
+export const COUNTRY_CODE_RE = /^[A-Z]{2}$/;
 /** ISO 3166-2 subdivision codes seen from the API are 1-3 alphanumerics (the live probe returns e.g. `CA`). */
 const REGION_CODE_RE = /^[A-Za-z0-9]{1,3}$/;
 

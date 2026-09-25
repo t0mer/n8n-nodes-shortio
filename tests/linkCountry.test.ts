@@ -29,6 +29,9 @@ function run(entry: (typeof linkCountryHandlers)[string], exec: IExecuteFunction
 }
 
 const LINK = { __rl: true, mode: 'id', value: 'lnk_abc_d' };
+// URL mode makes `resolveLinkId` call `GET /links/expand`; these values prove validation runs
+// BEFORE that lookup (see tests below), not just before the id-mode's local, HTTP-free check.
+const LINK_URL = { __rl: true, mode: 'url', value: 'https://s.gy/abc' };
 
 describe('link country create', () => {
 	it('sends POST /link_country/{linkId} with {country, originalURL}', async () => {
@@ -71,6 +74,16 @@ describe('link country create', () => {
 
 	it('rejects a missing Original URL and makes no HTTP call', async () => {
 		const exec = fakeExec({ link: LINK, country: 'US', originalURL: '' }, []);
+
+		await expect(run(linkCountryHandlers.create, exec, 0)).rejects.toThrow(NodeOperationError);
+		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
+
+	it('validates the country before resolving a URL-mode link (no /links/expand call)', async () => {
+		const exec = fakeExec(
+			{ link: LINK_URL, country: '../../links', originalURL: 'https://example.com' },
+			[],
+		);
 
 		await expect(run(linkCountryHandlers.create, exec, 0)).rejects.toThrow(NodeOperationError);
 		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
@@ -133,6 +146,19 @@ describe('link country create many', () => {
 		await expect(run(linkCountryHandlers.createMany, exec, 0)).rejects.toThrow(NodeOperationError);
 		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
 	});
+
+	it('validates target countries before resolving a URL-mode link (no /links/expand call)', async () => {
+		const exec = fakeExec(
+			{
+				link: LINK_URL,
+				targets: { target: [{ country: '../../etc/passwd', originalURL: 'https://example.com' }] },
+			},
+			[],
+		);
+
+		await expect(run(linkCountryHandlers.createMany, exec, 0)).rejects.toThrow(NodeOperationError);
+		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
 });
 
 describe('link country delete', () => {
@@ -151,6 +177,13 @@ describe('link country delete', () => {
 
 	it('rejects an invalid country code and makes no HTTP call', async () => {
 		const exec = fakeExec({ link: LINK, country: '1x' }, []);
+
+		await expect(run(linkCountryHandlers.delete, exec, 0)).rejects.toThrow(NodeOperationError);
+		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
+
+	it('validates the country before resolving a URL-mode link (no /links/expand call)', async () => {
+		const exec = fakeExec({ link: LINK_URL, country: '1x' }, []);
 
 		await expect(run(linkCountryHandlers.delete, exec, 0)).rejects.toThrow(NodeOperationError);
 		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
