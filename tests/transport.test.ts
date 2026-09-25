@@ -91,6 +91,23 @@ describe('shortIoRequest', () => {
 		);
 	});
 
+	it('prefers the Fastify validation detail message over the generic error reason phrase', async () => {
+		const ctx = fakeCtx([
+			{
+				statusCode: 400,
+				body: {
+					statusCode: 400,
+					code: 'FST_ERR_VALIDATION',
+					error: 'Bad Request',
+					message: 'links/0/originalURL must pass "url" keyword validation',
+				},
+			},
+		]);
+		await expect(shortIoRequest.call(ctx, { method: 'POST', path: '/links/bulk' })).rejects.toThrow(
+			/must pass/,
+		);
+	});
+
 	it('treats 200 {success:false,error} as failure', async () => {
 		const ctx = fakeCtx([{ statusCode: 200, body: { success: false, error: 'nope' } }]);
 		await expect(

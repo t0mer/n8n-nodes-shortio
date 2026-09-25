@@ -68,10 +68,17 @@ function decodeBinaryErrorBody(body: unknown): unknown {
 	}
 }
 
+/**
+ * Fastify validation error bodies (`{"code":"FST_ERR_VALIDATION","error":"Bad Request","message":
+ * "links/0/originalURL must pass \"url\" keyword validation"}`) put the useful detail in `message`
+ * and a generic HTTP reason phrase in `error`, so `message` is preferred when present. Other
+ * Short.io errors (`{"error":"Link already exists"}`, `{"error":"Link not found"}`, 402 plan
+ * errors, …) carry only `error`, so those are unaffected.
+ */
 function apiMessage(body: unknown): string | undefined {
 	if (body && typeof body === 'object') {
 		const record = body as IDataObject;
-		for (const key of ['error', 'message']) {
+		for (const key of ['message', 'error']) {
 			const value = record[key];
 			if (typeof value === 'string' && value) return value;
 		}
