@@ -1,0 +1,31 @@
+# Build / deps
+dist/
+node_modules/
+
+# Claude / AI assistant context — local only, never track
+CLAUDE.md
+.claude/
+.cursor/
+.aider*
+
+# Design / implementation / planning docs (incl. docs/api/ spec mirror) — local only
+/docs/
+docs/*
+*.design.md
+*.implementation.md
+
+# Local security scan output
+scans/
+
+# Local dev config / secrets
+.env
+.env.*
+!.env.example
+
+# Logs / editor / OS
+*.log
+npm-debug.log*
+*.tgz
+.idea/
+*.swp
+.DS_Store
