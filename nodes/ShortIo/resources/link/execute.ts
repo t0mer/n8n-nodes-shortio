@@ -48,6 +48,49 @@ async function get(this: IExecuteFunctions, i: number): Promise<INodeExecutionDa
 	return this.helpers.returnJsonArray(link);
 }
 
+async function getByPath(
+	this: IExecuteFunctions,
+	i: number,
+	ctx: ExecContext,
+): Promise<INodeExecutionData[]> {
+	const domainParam = this.getNodeParameter('domain', i);
+	const rawPath = this.getNodeParameter('path', i) as string;
+	const path = rawPath.replace(/^\/+/, '');
+
+	const domain = await ctx.domains.get(this, resolveDomainId(domainParam));
+
+	const link = (await shortIoRequest.call(this, {
+		method: 'GET',
+		path: '/links/expand',
+		qs: { domain: domain.hostname, path },
+		resource: 'link',
+		itemIndex: i,
+	})) as IDataObject;
+
+	return this.helpers.returnJsonArray(link);
+}
+
+async function getByOriginalUrl(
+	this: IExecuteFunctions,
+	i: number,
+	ctx: ExecContext,
+): Promise<INodeExecutionData[]> {
+	const domainParam = this.getNodeParameter('domain', i);
+	const originalURL = this.getNodeParameter('originalURL', i) as string;
+
+	const domain = await ctx.domains.get(this, resolveDomainId(domainParam));
+
+	const response = (await shortIoRequest.call(this, {
+		method: 'GET',
+		path: '/links/multiple-by-url',
+		qs: { domain: domain.hostname, originalURL },
+		resource: 'link',
+		itemIndex: i,
+	})) as { links: IDataObject[] };
+
+	return this.helpers.returnJsonArray(response.links ?? []);
+}
+
 async function update(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
 	const linkParam = this.getNodeParameter('link', i);
 	const updateFields = this.getNodeParameter('updateFields', i, {}) as IDataObject;
@@ -90,5 +133,7 @@ export const linkHandlers: Record<string, OperationEntry> = {
 	create: { kind: 'item', run: create },
 	delete: { kind: 'item', run: del },
 	get: { kind: 'item', run: get },
+	getByOriginalUrl: { kind: 'item', run: getByOriginalUrl },
+	getByPath: { kind: 'item', run: getByPath },
 	update: { kind: 'item', run: update },
 };

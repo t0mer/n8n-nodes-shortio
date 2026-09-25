@@ -95,6 +95,69 @@ describe('link get', () => {
 	});
 });
 
+describe('link get by path', () => {
+	it('resolves the domain hostname, strips a leading slash, and sends GET /links/expand', async () => {
+		const exec = fakeExec(
+			{ domain: { __rl: true, mode: 'id', value: '123' }, path: '/my/path' },
+			[
+				{ statusCode: 200, body: { id: 123, hostname: 's.gy' } },
+				{ statusCode: 200, body: { idString: 'link_abc', path: 'my/path' } },
+			],
+		);
+
+		const [item] = await run(linkHandlers.getByPath, exec, 0, newCtx());
+
+		const [, expandOpts] = calls(exec)[1] as [string, { method: string; url: string; qs: unknown }];
+		expect(expandOpts).toMatchObject({
+			method: 'GET',
+			url: 'https://api.short.io/links/expand',
+			qs: { domain: 's.gy', path: 'my/path' },
+		});
+		expect(item.json).toEqual({ idString: 'link_abc', path: 'my/path' });
+	});
+});
+
+describe('link get by original URL', () => {
+	it('sends GET /links/multiple-by-url and returns one item per link', async () => {
+		const exec = fakeExec(
+			{ domain: { __rl: true, mode: 'id', value: '123' }, originalURL: 'https://example.com' },
+			[
+				{ statusCode: 200, body: { id: 123, hostname: 's.gy' } },
+				{
+					statusCode: 200,
+					body: { links: [{ idString: 'link_a' }, { idString: 'link_b' }] },
+				},
+			],
+		);
+
+		const items = await run(linkHandlers.getByOriginalUrl, exec, 0, newCtx());
+
+		const [, opts] = calls(exec)[1] as [string, { method: string; url: string; qs: unknown }];
+		expect(opts).toMatchObject({
+			method: 'GET',
+			url: 'https://api.short.io/links/multiple-by-url',
+			qs: { domain: 's.gy', originalURL: 'https://example.com' },
+		});
+		expect(items).toHaveLength(2);
+		expect(items[0].json).toEqual({ idString: 'link_a' });
+		expect(items[1].json).toEqual({ idString: 'link_b' });
+	});
+
+	it('returns no items when the links list is empty', async () => {
+		const exec = fakeExec(
+			{ domain: { __rl: true, mode: 'id', value: '123' }, originalURL: 'https://example.com' },
+			[
+				{ statusCode: 200, body: { id: 123, hostname: 's.gy' } },
+				{ statusCode: 200, body: { links: [] } },
+			],
+		);
+
+		const items = await run(linkHandlers.getByOriginalUrl, exec, 0, newCtx());
+
+		expect(items).toEqual([]);
+	});
+});
+
 describe('link update', () => {
 	it('throws NodeOperationError and makes no HTTP call when updateFields is empty', async () => {
 		const exec = fakeExec(
