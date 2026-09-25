@@ -83,6 +83,7 @@ describe('link generate QR code', () => {
 			idString: 'lnk_abc_d',
 			url: 'https://shortiougc.com/qr-code-link/s.gy/lnk_abc_d',
 			type: 'svg',
+			requestedType: 'svg',
 		});
 		expect(item.binary?.data).toMatchObject({ fileName: 'qr-lnk_abc_d.svg', mimeType: 'image/svg+xml' });
 	});
@@ -107,16 +108,54 @@ describe('link generate QR code', () => {
 		expect(exec.helpers.httpRequest).not.toHaveBeenCalled();
 	});
 
-	it('uses a raw-bytes response directly, without downloading', async () => {
-		const exec = fakeExec({ link: link('lnk_abc_d'), options: { type: 'png' } }, [
-			{ statusCode: 200, body: Buffer.from('raw-png-bytes') },
+	it('rejects a QR url on a host other than shortiougc.com and never downloads it', async () => {
+		const exec = fakeExec({ link: link('lnk_abc_d') }, [
+			{ statusCode: 200, body: { url: 'https://evil.example/qr-code-link/s.gy/lnk_abc_d' } },
 		]);
+
+		const error = (await generateQrCode.call(exec, 0).catch((e: unknown) => e)) as NodeOperationError;
+		expect(error).toBeInstanceOf(NodeOperationError);
+		expect(error.message).toMatch(/evil\.example/);
+		expect(exec.helpers.httpRequest).not.toHaveBeenCalled();
+	});
+
+	it('accepts a shortiougc.com subdomain host', async () => {
+		const exec = fakeExec({ link: link('lnk_abc_d') }, [
+			{ statusCode: 200, body: { url: 'https://cdn.shortiougc.com/qr-code-link/s.gy/lnk_abc_d' } },
+		]);
+		mockDownload(exec, { body: Buffer.from('png-bytes'), headers: { 'content-type': 'image/png' } });
 
 		const [item] = await generateQrCode.call(exec, 0);
 
+		expect(item.json.url).toBe('https://cdn.shortiougc.com/qr-code-link/s.gy/lnk_abc_d');
+	});
+
+	it('rejects a QR url that embeds credentials and never downloads it', async () => {
+		const exec = fakeExec({ link: link('lnk_abc_d') }, [
+			{ statusCode: 200, body: { url: 'https://user:pass@shortiougc.com/qr-code-link/s.gy/lnk_abc_d' } },
+		]);
+
+		const error = (await generateQrCode.call(exec, 0).catch((e: unknown) => e)) as NodeOperationError;
+		expect(error).toBeInstanceOf(NodeOperationError);
 		expect(exec.helpers.httpRequest).not.toHaveBeenCalled();
-		expect(item.json).toEqual({ idString: 'lnk_abc_d', type: 'png' });
-		expect(item.binary?.data).toMatchObject({ fileName: 'qr-lnk_abc_d.png', mimeType: 'image/png' });
+	});
+
+	it('rejects a response with no string url', async () => {
+		const exec = fakeExec({ link: link('lnk_abc_d') }, [{ statusCode: 200, body: { ok: true } }]);
+
+		const error = (await generateQrCode.call(exec, 0).catch((e: unknown) => e)) as NodeOperationError;
+		expect(error).toBeInstanceOf(NodeOperationError);
+		expect(error.message).toMatch(/Unexpected QR code response from Short\.io/);
+		expect(exec.helpers.httpRequest).not.toHaveBeenCalled();
+	});
+
+	it('rejects an empty binaryPropertyName without calling the API', async () => {
+		const exec = fakeExec({ link: link('lnk_abc_d'), binaryPropertyName: '   ' }, []);
+
+		const error = (await generateQrCode.call(exec, 0).catch((e: unknown) => e)) as NodeOperationError;
+		expect(error).toBeInstanceOf(NodeOperationError);
+		expect(error.message).toMatch(/Binary Property must not be empty/);
+		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
 	});
 
 	it('falls back to the requested type for the MIME/extension when no content-type header is present', async () => {
@@ -131,9 +170,11 @@ describe('link generate QR code', () => {
 	});
 
 	it('respects a custom binaryPropertyName', async () => {
-		const exec = fakeExec({ link: link('lnk_abc_d'), binaryPropertyName: 'qrImage' }, [
-			{ statusCode: 200, body: Buffer.from('raw') },
-		]);
+		const exec = fakeExec(
+			{ link: link('lnk_abc_d'), binaryPropertyName: ' qrImage ' },
+			[{ statusCode: 200, body: { url: 'https://shortiougc.com/qr-code-link/s.gy/lnk_abc_d' } }],
+		);
+		mockDownload(exec, { body: Buffer.from('png-bytes'), headers: { 'content-type': 'image/png' } });
 
 		const [item] = await generateQrCode.call(exec, 0);
 
@@ -169,10 +210,12 @@ describe('link generate QR codes many', () => {
 	}
 
 	it('chunks 151 items into 2 requests and 2 output items with array pairedItem', async () => {
+		// The API declares `application/json` for this endpoint even though the body is a ZIP (per
+		// the digest); the node must hardcode application/zip rather than trust this header.
 		const perItem = Array.from({ length: 151 }, (_, i) => ({ link: link(`link_${i}`) }));
 		const exec = fakeManyExec(perItem, { domain: domain('1') }, [
-			{ statusCode: 201, body: Buffer.from('zip-1'), headers: { 'content-type': 'application/zip' } },
-			{ statusCode: 201, body: Buffer.from('zip-2'), headers: { 'content-type': 'application/zip' } },
+			{ statusCode: 201, body: Buffer.from('zip-1'), headers: { 'content-type': 'application/json' } },
+			{ statusCode: 201, body: Buffer.from('zip-2'), headers: { 'content-type': 'application/json' } },
 		]);
 
 		const out = await runMany(151, exec);

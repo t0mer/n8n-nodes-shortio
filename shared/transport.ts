@@ -51,6 +51,22 @@ export function getHeader(
 	return Object.entries(headers).find(([k]) => k.toLowerCase() === lower)?.[1];
 }
 
+/**
+ * Binary-mode responses are always requested with `encoding: 'arraybuffer'`, so an error response
+ * (status >= 400) arrives as raw bytes too, even though the API's error bodies are JSON. Decodes
+ * those bytes as UTF-8 and parses them as JSON when possible, so {@link toShortIoError} can still
+ * read the API's `error`/`message` field; falls back to the decoded string when it isn't JSON.
+ */
+function decodeBinaryErrorBody(body: unknown): unknown {
+	if (!Buffer.isBuffer(body) && !(body instanceof ArrayBuffer)) return body;
+	const text = Buffer.from(body as ArrayBuffer).toString('utf8');
+	try {
+		return JSON.parse(text);
+	} catch {
+		return text;
+	}
+}
+
 function apiMessage(body: unknown): string | undefined {
 	if (body && typeof body === 'object') {
 		const record = body as IDataObject;
@@ -125,7 +141,8 @@ export async function shortIoRequest<T = unknown>(
 		}
 
 		if (res.statusCode >= 400) {
-			throw toShortIoError(this.getNode(), res.statusCode, res.body, req);
+			const errorBody = req.binary ? decodeBinaryErrorBody(res.body) : res.body;
+			throw toShortIoError(this.getNode(), res.statusCode, errorBody, req);
 		}
 
 		if (req.binary) {

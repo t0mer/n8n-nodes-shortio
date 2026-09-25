@@ -98,6 +98,15 @@ describe('shortIoRequest', () => {
 		).rejects.toThrow(/nope/);
 	});
 
+	it('binary mode decodes a JSON error body from raw bytes', async () => {
+		const ctx = fakeCtx([
+			{ statusCode: 400, body: Buffer.from('{"error":"Invalid body"}') },
+		]);
+		await expect(
+			shortIoRequest.call(ctx, { method: 'POST', path: '/links/qr/bulk', binary: true }),
+		).rejects.toThrow(/Invalid body/);
+	});
+
 	it('binary mode returns buffer + content type', async () => {
 		const ctx = fakeCtx([
 			{ statusCode: 201, headers: { 'content-type': 'application/zip' }, body: Buffer.from('PK') },
