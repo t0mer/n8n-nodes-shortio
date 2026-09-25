@@ -1,46 +1,248 @@
 # n8n-nodes-shortio
 
-This is an n8n community node. It lets you use _app/service name_ in your n8n workflows.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-_App/service name_ is _one or two sentences describing the service this node integrates with_.
+An n8n community node for [Short.io](https://short.io), a branded short-link service. It covers
+Short.io's server-side API: links, bulk link operations, QR codes, OpenGraph, link permissions,
+country/region targeting, folders, domains, statistics, and a polling trigger for new links and
+clicks.
 
-[n8n](https://n8n.io/) is a [fair-code licensed](https://docs.n8n.io/sustainable-use-license/) workflow automation platform.
+> This package is unofficial. It is not affiliated with, endorsed by, or supported by Short.io.
+> "Short.io" is used only to describe what the node connects to.
 
-[Installation](#installation)
-[Operations](#operations)
-[Credentials](#credentials)
-[Compatibility](#compatibility)
-[Usage](#usage)
-[Resources](#resources)
-[Version history](#version-history)
+> **Status: under active development.** Operations are being added incrementally; the first npm
+> release has not been published yet. This README describes the full set of planned operations
+> and will be finalized once they have all landed.
+
+- [Installation](#installation)
+- [Credentials](#credentials)
+- [Operations](#operations)
+- [Trigger](#trigger)
+- [Bulk operations](#bulk-operations)
+- [Rate limits](#rate-limits)
+- [Statistics notes](#statistics-notes)
+- [Excluded](#excluded)
+- [Compatibility](#compatibility)
+- [Usage terms](#usage-terms)
+- [Resources](#resources)
+- [Version history](#version-history)
 
 ## Installation
 
-Follow the [installation guide](https://docs.n8n.io/integrations/community-nodes/installation/) in the n8n community nodes documentation.
+> Not published to npm yet — these steps will work once the first version ships (see Status).
 
-## Operations
+On a self-hosted n8n instance:
 
-_List the operations supported by your node._
+1. Go to **Settings → Community Nodes**.
+2. Select **Install**, enter `@t0mer/n8n-nodes-shortio`, and confirm.
+
+See the n8n guide to
+[installing community nodes](https://docs.n8n.io/integrations/community-nodes/installation-and-management)
+for other options, including manual installation with npm in a queue-mode or self-hosted setup:
+
+```bash
+npm install @t0mer/n8n-nodes-shortio
+```
 
 ## Credentials
 
-_If users need to authenticate with the app/service, provide details here. You should include prerequisites (such as signing up with the service), available authentication methods, and how to set them up._
+The node authenticates with a Short.io **secret** API key. Public keys (the kind used in
+client-side JavaScript) are not supported — every operation runs server-side.
+
+1. In the Short.io dashboard, go to **Integrations & API** and create a secret key. See
+   [Creating an API key](https://developers.short.io/docs/creating-an-api-key) for the walkthrough.
+2. In n8n, create a **Short.io API** credential and paste the key into **API Key**.
+
+The key's team or domain permissions limit which domains the node can see and act on — a key
+scoped to one domain won't list or resolve others. The credential test calls
+`GET /api/domains`.
+
+## Operations
+
+**Domain**, **Link** and **Folder** fields use a resource locator:
+
+- **Domain** — **From List** (fetched via `GET /api/domains`, shown by hostname) or **By ID**.
+- **Link** — **By ID** (accepts both the current `link_…` and the older `lnk_…` idString format)
+  or **By Short URL**, which accepts a full short link (`https://host/path`) and resolves it
+  through `GET /links/expand`.
+- **Folder** — **From List** (`GET /links/folders/{domainId}`) or **By ID**.
+
+### Link
+
+| Operation | Notes |
+|---|---|
+| Archive | |
+| Archive Many | Up to 150 links per call |
+| Create | Domain and Original URL required; every other field is optional |
+| Create Many | Up to 1000 links per call, paced at 5 calls / 10 s |
+| Delete | |
+| Delete Many | Up to 150 links per call, paced at 1 call / s |
+| Generate QR Code | Binary image output (the node downloads the QR image Short.io generates; format follows the Type option) |
+| Generate QR Codes (Many) | Up to 150 links per call; binary output, one ZIP per call |
+| Get | |
+| Get by Original URL | Returns every link created for that URL |
+| Get by Path | Resolves a full short link (domain + path) to its link record |
+| Get Many | Paginated; supports date range, folder and sort-order filters |
+| Tag Many | Appends one tag to up to 150 links per call |
+| Unarchive | |
+| Unarchive Many | Up to 150 links per call |
+| Update | Same fields as Create, all optional, **except Folder and Allow Duplicates**, which Short.io's update endpoint doesn't accept |
+
+### Link OpenGraph
+
+| Operation | Notes |
+|---|---|
+| Get | |
+| Set | |
+
+### Link Permission
+
+| Operation | Notes |
+|---|---|
+| Add | |
+| Delete | |
+| Get Many | |
+
+### Link Country Targeting
+
+| Operation | Notes |
+|---|---|
+| Create | Country is an ISO 3166-1 alpha-2 code |
+| Create Many | Multiple countries for one link in a single call |
+| Delete | |
+| Get Many | |
+
+### Link Region Targeting
+
+| Operation | Notes |
+|---|---|
+| Create | Region is the bare subdivision code (e.g. `CA`, not `US-CA`) |
+| Create Many | Multiple regions for one link in a single call |
+| Delete | |
+| Get Many | |
+| Get Regions for Country | Populates the Region selector for the chosen country |
+
+### Folder
+
+| Operation | Notes |
+|---|---|
+| Create | |
+| Get | |
+| Get Many | |
+
+### Domain
+
+| Operation | Notes |
+|---|---|
+| Create | |
+| Get | |
+| Get Many | |
+| Update Settings | Exposes every domain setting field as optional |
+
+### Statistics
+
+| Operation | Notes |
+|---|---|
+| Clear Domain Statistics | Irreversible; requires the **Confirm** parameter to be turned on, or the node refuses to run it |
+| Get Domain Statistics | |
+| Get Domain Statistics by Interval | |
+| Get Domain Top Values | |
+| Get Domain Top Values by Interval | |
+| Get Link Clicks | Identify links by ID or by path |
+| Get Link Statistics | |
+| Get Link Statistics by Interval | |
+| Get Link Top Values | |
+| Get Raw Clicks | Raw click log for a domain (most recent clicks; Short.io does not document the sort order) |
+
+See [Statistics notes](#statistics-notes) for the shared Period, Timezone and Filters parameters.
+
+## Trigger
+
+**Short.io Trigger** is a polling trigger with two events:
+
+- **New Link** — emits links created since the last poll.
+- **New Click** — emits raw clicks recorded since the last poll.
+
+On first activation, the trigger stores a high-water mark and emits nothing; later polls emit
+only newer items. **Fetch Test Event** (manual mode) returns the most recent matching item as a
+sample without changing the stored state.
+
+## Bulk operations
+
+| Operation | Chunk size | Pacing |
+|---|---|---|
+| Create Many | Up to 1000 links per call | 5 calls / 10 s |
+| Archive Many / Unarchive Many / Delete Many / Tag Many¹ | Up to 150 links per call | Delete Many: 1 call / s. The others have no documented limit |
+| Generate QR Codes (Many) | Up to 150 links per call | No documented limit |
+
+¹ Short.io documents no maximum for Tag Many; 150 per call is the node's own conservative batch
+size, matching the sibling bulk endpoints.
+
+All bulk operations take every input item and split it into chunks of the sizes above.
+**Create Many is not transactional**: a chunk can partly succeed. A failed link comes back as an
+error item mapped to its original input index with continue-on-fail turned on; without
+continue-on-fail, the node throws and lists the failing item indexes. **Generate QR Codes (Many)**
+returns one ZIP file per chunk (not per link), so its output is one binary item per chunk of up
+to 150 links.
+
+## Rate limits
+
+Short.io's documented per-endpoint limits:
+
+| Endpoint(s) | Limit |
+|---|---|
+| Create a link | 50 requests / s |
+| Get, Update, Delete, Expand a link | 20 requests / s |
+| Create Many (bulk) | 5 requests / 10 s |
+| Delete Many (bulk) | 1 request / s |
+
+Other endpoints have no documented limit. On an HTTP 429 response, the node retries automatically
+up to 3 attempts in total, honouring the `Retry-After` header when Short.io sends one.
+
+## Statistics notes
+
+- **Period** accepts `today`, `yesterday`, `total`, `week`, `month`, `lastmonth`, `last7`,
+  `last30` (default) or `custom`. Choosing **Custom** exposes **Start Date** and **End Date**.
+- **Timezone** is an IANA name (for example `Europe/Berlin`), sent as `tz`. Short.io's older
+  `tzOffset` parameter is deprecated and is never sent.
+- **Filters** (where the operation supports them) are an include/exclude pair over columns such
+  as country, browser, browser version, social network, HTTP status, path, protocol, method,
+  referrer host, and UTM source/medium/campaign.
+
+## Excluded
+
+These Short.io endpoints and features are intentionally not implemented:
+
+| Item | Reason |
+|---|---|
+| `POST /links/public` | Public-key endpoint for client-side (browser/mobile) use only |
+| `GET /links/tweetbot` | GET-based duplicate of Create that puts the secret key in the query string |
+| `GET /links/by-original-url` | Deprecated; replaced by Get by Original URL (`GET /links/multiple-by-url`) |
+| Legacy `*.short.cm` hosts and numeric link IDs | Superseded by `*.short.io` hosts and `lnk_…`/`link_…` idStrings |
+| `GET /statistics/domain/{id}/paths` (Get Popular Links) | Deprecated; use **Get Domain Top Values** with **Column = Path** for the same data |
+| Conversion tracking | Short.io sends conversions with a browser-only `navigator.sendBeacon()` call to your own branded domain — there is no secret-key API endpoint for it |
 
 ## Compatibility
 
-_State the minimum n8n version, as well as which versions you test against. You can also include any known version incompatibility issues._
+Requires n8n 1.x or later with community nodes enabled. Built and tested with Node.js 24.
 
-## Usage
+## Usage terms
 
-_This is an optional section. Use it to help users with any difficult or confusing aspects of the node._
-
-_By the time users are looking for community nodes, they probably already know n8n basics. But if you expect new users, you can link to the [Try it out](https://docs.n8n.io/try-it-out/) documentation to help them get started._
+Use of this node is subject to [Short.io's Terms of Service](https://short.io/terms) and the
+limits of your Short.io plan. See the [Short.io API documentation](https://developers.short.io/)
+for the full reference this node is built against.
 
 ## Resources
 
-* [n8n community nodes documentation](https://docs.n8n.io/integrations/#community-nodes)
-* _Link to app/service documentation._
+- [n8n community nodes documentation](https://docs.n8n.io/integrations/#community-nodes)
+- [Short.io API documentation](https://developers.short.io/)
+- [Short.io API key setup](https://developers.short.io/docs/creating-an-api-key)
 
 ## Version history
 
-_This is another optional section. If your node has multiple versions, include a short description of available versions and what changed, as well as any compatibility impact._
+Nothing has been released yet. Versions will follow `YYYY.M.PATCH`, and the first release is
+planned as `2026.9.x`.
+
+## License
+
+[MIT](LICENSE)
