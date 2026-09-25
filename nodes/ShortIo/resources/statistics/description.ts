@@ -33,7 +33,9 @@ const PERIOD_OPS = [
 
 const TOP_OPS = ['getDomainTopValues', 'getLinkTopValues'];
 const LIMIT_OPS = [...TOP_OPS, 'getRawClicks'];
-const PREFIX_OPS = ['getDomainTopValues', 'getLinkTopValues'];
+// getLinkTopValues is reimplemented via Get Domain Top Values scoped to the link's own path (its
+// own endpoint 404s live), which makes a Prefix param meaningless there.
+const PREFIX_OPS = ['getDomainTopValues'];
 const STATS_OPTION_OPS = ['getDomainStatistics', 'getLinkStatistics'];
 const BY_INTERVAL_OPS = ['getDomainStatisticsByInterval', 'getLinkStatisticsByInterval'];
 

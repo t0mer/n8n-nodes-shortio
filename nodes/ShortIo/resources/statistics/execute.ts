@@ -218,18 +218,36 @@ async function getLinkStatisticsByInterval(
 	return toItems.call(this, response);
 }
 
+/**
+ * `POST /statistics/link/{id}/top` returns 404 "Link undefined not found" for every id format on
+ * the live API (Part C evidence). The documented workaround is Get Domain Top Values scoped to
+ * just this link's path: resolve the link's `path`/`DomainId` via `GET /links/{id}`, then narrow
+ * (or intersect, if the user already set an Include Paths filter) the request to that one path.
+ */
 async function getLinkTopValues(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
 	const { period, tz, filters } = commonParams.call(this, i);
 	const column = this.getNodeParameter('column', i) as string;
 	const limit = this.getNodeParameter('limit', i, 50) as number;
-	const prefix = this.getNodeParameter('prefix', i, '') as string;
 	const linkId = await resolveLinkId.call(this, this.getNodeParameter('link', i), i);
+
+	const link = (await shortIoRequest.call(this, {
+		method: 'GET',
+		path: `/links/${linkId}`,
+		resource: 'link',
+		itemIndex: i,
+	})) as { path?: string; DomainId?: number };
+	const linkPath = `/${link.path ?? ''}`;
+
+	const userPaths = filters.include?.paths as string[] | undefined;
+	if (userPaths !== undefined && !userPaths.includes(linkPath)) return [];
+
+	const include = { ...filters.include, paths: [linkPath] };
 
 	const response = await statsRequest.call(this, {
 		method: 'POST',
-		path: `/link/${encodeURIComponent(linkId)}/top`,
-		body: compact({ column, limit, prefix, ...period, tz, ...filters }),
-		resource: 'link',
+		path: `/domain/${link.DomainId}/top`,
+		body: compact({ column, limit, ...period, tz, ...filters, include }),
+		resource: 'domain',
 		itemIndex: i,
 	});
 	return toItems.call(this, response);

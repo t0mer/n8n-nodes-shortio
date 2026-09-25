@@ -447,24 +447,70 @@ describe('link statistics', () => {
 		expect(opts.body).toEqual({ period: 'last30', tz: 'Europe/Berlin', clicksChartInterval: 'month' });
 	});
 
-	it('posts link top with column, limit and prefix', async () => {
-		const exec = fakeExec({ link: LINK, column: 'browser', limit: 3, prefix: 'Ch' }, [
+	it('resolves the link, then posts domain top values scoped to its path', async () => {
+		const exec = fakeExec({ link: LINK, column: 'browser', limit: 3 }, [
+			{ statusCode: 200, body: { path: 'abc123', DomainId: 55 } },
 			{ statusCode: 200, body: [{ score: 2, column: 'Chrome', displayName: 'Chrome' }] },
 		]);
 
 		const items = await run('getLinkTopValues', exec);
 
-		const [opts] = calls(exec);
-		expect(opts.method).toBe('POST');
-		expect(opts.url).toBe('https://statistics.short.io/statistics/link/lnk_abc_123/top');
-		expect(opts.body).toEqual({
+		const [linkOpts, topOpts] = calls(exec);
+		expect(linkOpts).toMatchObject({ method: 'GET', url: 'https://api.short.io/links/lnk_abc_123' });
+		expect(topOpts).toMatchObject({
+			method: 'POST',
+			url: 'https://statistics.short.io/statistics/domain/55/top',
+		});
+		expect(topOpts.body).toEqual({
 			column: 'browser',
 			limit: 3,
-			prefix: 'Ch',
 			period: 'last30',
 			tz: 'Europe/Berlin',
+			include: { paths: ['/abc123'] },
 		});
 		expect(items).toHaveLength(1);
+	});
+
+	it('merges the link path into an existing include filter without dropping other columns', async () => {
+		const exec = fakeExec(
+			{ link: LINK, column: 'browser', filters: { include: { columns: { human: true } } } },
+			[
+				{ statusCode: 200, body: { path: 'abc123', DomainId: 55 } },
+				{ statusCode: 200, body: [] },
+			],
+		);
+
+		await run('getLinkTopValues', exec);
+
+		const [, topOpts] = calls(exec);
+		expect(topOpts.body).toMatchObject({ include: { human: true, paths: ['/abc123'] } });
+	});
+
+	it('intersects an existing include.paths that already contains the link path', async () => {
+		const exec = fakeExec(
+			{ link: LINK, column: 'browser', filters: { include: { columns: { paths: '/abc123,/other' } } } },
+			[
+				{ statusCode: 200, body: { path: 'abc123', DomainId: 55 } },
+				{ statusCode: 200, body: [] },
+			],
+		);
+
+		await run('getLinkTopValues', exec);
+
+		const [, topOpts] = calls(exec);
+		expect(topOpts.body).toMatchObject({ include: { paths: ['/abc123'] } });
+	});
+
+	it('returns an empty result without a second request when include.paths excludes the link', async () => {
+		const exec = fakeExec(
+			{ link: LINK, column: 'browser', filters: { include: { columns: { paths: '/other' } } } },
+			[{ statusCode: 200, body: { path: 'abc123', DomainId: 55 } }],
+		);
+
+		const items = await run('getLinkTopValues', exec);
+
+		expect(items).toEqual([]);
+		expect(calls(exec)).toHaveLength(1);
 	});
 
 	it.each(['getLinkStatistics', 'getLinkStatisticsByInterval', 'getLinkTopValues'])(
