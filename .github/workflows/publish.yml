@@ -21,8 +21,8 @@
 #   1. Log in to npmjs.com and open your package's settings.
 #   2. Under "Publish access" → "Trusted Publishers", click "Add a publisher".
 #   3. Select GitHub Actions and fill in:
-#        Repository owner: <your-github-username-or-org>
-#        Repository name:  <your-repo-name>
+#        Repository owner: t0mer
+#        Repository name:  n8n-nodes-shortio
 #        Workflow name:    publish.yml
 #        Environment:      (leave blank unless you use GitHub Environments)
 #   4. Leave the NPM_TOKEN secret unset in this repository. GitHub's OIDC
@@ -39,8 +39,11 @@
 #
 # ─── TAG CONVENTION ────────────────────────────────────────────────────────────
 #
-# This workflow triggers on tags matching "*.*.*" (e.g. 0.2.0).
-# If you prefer tags with a "v" prefix (e.g. v0.2.0), change the filter to:
+# This workflow triggers on tags matching "*.*.*" (e.g. 2026.9.1), and the tag sets the
+# published version: the "Set version from tag" step writes it into package.json before
+# publishing, so package.json does not need to be bumped in git. A leading "v" is stripped.
+# The version must be higher than the latest one on npm.
+# If you prefer tags with a "v" prefix (e.g. v2026.9.1), change the filter to:
 #   tags: ['v*.*.*']
 #
 # ─── RELEASE PROCESS ───────────────────────────────────────────────────────────
@@ -78,11 +81,25 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
         run: 'npm ci'
+
+      - name: Set version from tag
+        # The pushed tag is the source of truth for the published version: package.json is
+        # not bumped in git, so write the tag's version into it before publishing.
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag '$TAG' is not a semver version (e.g. 2026.9.1)"
+            exit 1
+          fi
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          echo "Publishing version $VERSION"
 
       - name: Release
         # Publishes to npm with a provenance attestation (requires id-token: write above).
@@ -97,3 +114,33 @@ jobs:
           npm run release
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  scan:
+    # Separate job so the scanner never runs alongside the npm token or the OIDC permission.
+    name: Scan published package
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Run the n8n Creator Portal scan
+        # Same static analysis the n8n Creator Portal uses for verification. Retries while
+        # the new version propagates through the npm registry.
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          PACKAGE="$(node -p "require('./package.json').name")@${TAG#v}"
+          for attempt in 1 2 3 4 5; do
+            npx --yes @n8n/scan-community-package@0.37.0 "$PACKAGE" && exit 0
+            echo "Scan attempt $attempt failed; retrying in 30s"
+            sleep 30
+          done
+          exit 1
