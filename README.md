@@ -57,7 +57,7 @@ client-side JavaScript) are not supported — every operation runs server-side.
 
 1. In the Short.io dashboard, go to **Integrations & API** and create a secret key. See
    [Creating an API key](https://developers.short.io/docs/creating-an-api-key) for the walkthrough.
-2. In n8n, create a **Short.io API** credential and paste the key into **API Key**.
+2. In n8n, create a **Short.io API** credential and paste the key into **Secret API Key**.
 
 The key's team or domain permissions limit which domains the node can see and act on — a key
 scoped to one domain won't list or resolve others. The credential test calls
@@ -87,7 +87,7 @@ scoped to one domain won't list or resolve others. The credential test calls
 | Generate QR Codes (Many) | Up to 150 links per call; binary output, one ZIP per call, returned directly by Short.io the same way as Generate QR Code |
 | Get | |
 | Get by Original URL | Returns every link created for that URL |
-| Get by Path | Resolves a full short link (domain + path) to its link record |
+| Get by Path | Looks up a link by its Domain and Path |
 | Get Many | Paginated; supports date range, folder and sort-order filters |
 | Tag Many | Appends one tag to up to 150 links per call |
 | Unarchive | |
@@ -164,8 +164,12 @@ See [Statistics notes](#statistics-notes) for the shared Period, Timezone and Fi
 
 **Short.io Trigger** is a polling trigger with two events:
 
-- **New Link** — emits links created since the last poll.
-- **New Click** — emits raw clicks recorded since the last poll.
+- **New Link** — emits links created since the last poll. A link created with a backdated
+  **Created At** earlier than the last poll's mark is not emitted, since the mark only ever moves
+  forward.
+- **New Click** — emits raw clicks recorded since the last poll, up to 2,000 clicks (20 pages of
+  100) per poll; a burst larger than that is capped, with older clicks from the same burst skipped
+  and a warning logged, rather than delaying the whole poll further.
 
 On first activation, the trigger stores a high-water mark and emits nothing; later polls emit
 only newer items. **Fetch Test Event** (manual mode) returns the most recent matching item as a
@@ -176,8 +180,8 @@ sample without changing the stored state.
 | Operation | Chunk size | Pacing |
 |---|---|---|
 | Create Many | Up to 1000 links per call | 5 calls / 10 s |
-| Archive Many / Unarchive Many / Delete Many / Tag Many¹ | Up to 150 links per call | Delete Many: 1 call / s. The others have no documented limit |
-| Generate QR Codes (Many) | Up to 150 links per call | No documented limit |
+| Archive Many / Unarchive Many / Delete Many / Generate QR Codes (Many) | Up to 150 links per call | 1 call / s. Delete Many's limit is documented; the other three hit undocumented 429s (Retry-After up to 24 s) in live testing and are paced the same way as a precaution |
+| Tag Many¹ | Up to 150 links per call | No documented limit |
 
 ¹ Short.io documents no maximum for Tag Many; 150 per call is the node's own conservative batch
 size, matching the sibling bulk endpoints.
@@ -222,6 +226,9 @@ up to 3 attempts in total, honouring the `Retry-After` header when Short.io send
   Social, Status, UTM Campaign, UTM Medium, UTM Source.
 - **Limit** on the Top Values operations and Get Raw Clicks defaults to 50, with no documented
   maximum.
+- Get Raw Clicks' **After Date**/**Before Date** are pagination cursors, not a report window —
+  they're ignored when **Period** is **All Time**; use **Period: Custom** (or another preset) to
+  page through results.
 - Charts (Get Domain/Link Statistics by Interval), the Top Values operations and Get Link Clicks
   count **human clicks only** by default; the plain click totals (`clicks`/`totalClicks` from Get
   Domain/Link Statistics) count all clicks, bots included.
