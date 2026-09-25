@@ -165,6 +165,8 @@ export const statisticsDescription: INodeProperties[] = [
 		typeOptions: { multipleValues: true },
 		placeholder: 'Add Link',
 		default: {},
+		description:
+			'The links to count clicks for. The API matches only the bare path, so a full short URL or a leading slash is stripped before sending; the output is keyed by that bare path, not by what you enter here.',
 		displayOptions: { show: { ...op('getLinkClicks'), identifyBy: ['path'] } },
 		options: [
 			{
@@ -179,12 +181,13 @@ export const statisticsDescription: INodeProperties[] = [
 						description: 'When the link was created',
 					},
 					{
-						displayName: 'Short URL',
+						displayName: 'Path',
 						name: 'path',
 						type: 'string',
 						default: '',
-						placeholder: 'https://short.example/abc123',
-						description: 'The full short URL of the link',
+						placeholder: 'abc123 or https://short.example/abc123',
+						description:
+							"The link's path, or its full short URL. Normalized to the bare path (no scheme, host or leading slash) before it's sent, since that's what the API matches.",
 					},
 				],
 			},

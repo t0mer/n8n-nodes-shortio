@@ -2,12 +2,29 @@ import { NodeOperationError } from 'n8n-workflow';
 import type { IDataObject, IExecuteFunctions, INodeExecutionData } from 'n8n-workflow';
 
 import { compact, toIsoDate, unwrapOrSuccess } from '../../../../shared/fields';
-import { LINK_ID_REGEX, resolveDomainId, resolveLinkId } from '../../../../shared/locators';
+import {
+	LINK_ID_REGEX,
+	parseShortUrl,
+	resolveDomainId,
+	resolveLinkId,
+} from '../../../../shared/locators';
 import { shortIoRequest, type ShortIoRequest } from '../../../../shared/transport';
 import type { OperationEntry } from '../../../../shared/types';
 import { buildPeriod, buildStatsFilters, buildTimezone } from '../../descriptions/statistics';
 
 const LINK_ID_RE = new RegExp(LINK_ID_REGEX);
+
+/**
+ * `POST link_clicks` with `pathsDates` matches only the bare link path (no scheme, host or leading
+ * slash); a full short URL or a `/`-prefixed path returns 0 silently (Part C evidence). Accepts
+ * either shape: a full URL (has a `scheme://`) is parsed with {@link parseShortUrl} and only its
+ * path kept (the host is ignored, since this endpoint takes no domain); anything else is treated
+ * as an already-bare path with just a leading slash stripped.
+ */
+function bareClickPath(raw: string): string {
+	const hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw);
+	return hasScheme ? parseShortUrl(raw).path : raw.replace(/^\/+/, '');
+}
 
 /** Period, tz and include/exclude filters for item `i`, all validated locally. */
 function commonParams(this: IExecuteFunctions, i: number) {
@@ -104,9 +121,20 @@ async function getLinkClicks(this: IExecuteFunctions, i: number): Promise<INodeE
 	if (identifyBy === 'path') {
 		const raw = this.getNodeParameter('pathsDates', i, {}) as { link?: IDataObject[] };
 		const pathsDates = (raw.link ?? []).map((entry) => {
-			const path = String(entry.path ?? '').trim();
+			const rawPath = String(entry.path ?? '').trim();
+			if (!rawPath) {
+				throw new NodeOperationError(this.getNode(), 'Every link needs a Path or Short URL', {
+					itemIndex: i,
+				});
+			}
+			let path: string;
+			try {
+				path = bareClickPath(rawPath);
+			} catch (error) {
+				throw new NodeOperationError(this.getNode(), (error as Error).message, { itemIndex: i });
+			}
 			if (!path) {
-				throw new NodeOperationError(this.getNode(), 'Every link needs a Short URL', {
+				throw new NodeOperationError(this.getNode(), `"${rawPath}" is missing a path`, {
 					itemIndex: i,
 				});
 			}

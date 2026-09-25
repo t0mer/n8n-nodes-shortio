@@ -297,7 +297,7 @@ describe('get link clicks', () => {
 		expect(calls(exec)).toHaveLength(0);
 	});
 
-	it('sends POST with pathsDates in the body and dates in the query', async () => {
+	it('normalizes a full short URL and a leading-slash path to bare paths in the body', async () => {
 		const exec = fakeExec(
 			{
 				domain: DOMAIN,
@@ -305,12 +305,13 @@ describe('get link clicks', () => {
 				pathsDates: {
 					link: [
 						{ path: 'https://s.example/abc', createdAt: '2026-08-17T16:16:06.000Z' },
-						{ path: ' https://s.example/def ', createdAt: '' },
+						{ path: ' /def ', createdAt: '' },
+						{ path: 'ghi', createdAt: '' },
 					],
 				},
 				dateRange: { startDate: '2026-09-01' },
 			},
-			[{ statusCode: 200, body: { 'https://s.example/abc': 22 } }],
+			[{ statusCode: 200, body: { abc: 22 } }],
 		);
 
 		const items = await run('getLinkClicks', exec);
@@ -320,16 +321,27 @@ describe('get link clicks', () => {
 		expect(opts.qs).toEqual({ startDate: '2026-09-01T00:00:00.000Z' });
 		expect(opts.body).toEqual({
 			pathsDates: [
-				{ path: 'https://s.example/abc', createdAt: '2026-08-17T16:16:06.000Z' },
-				{ path: 'https://s.example/def' },
+				{ path: 'abc', createdAt: '2026-08-17T16:16:06.000Z' },
+				{ path: 'def' },
+				{ path: 'ghi' },
 			],
 		});
-		expect(items).toEqual([{ json: { 'https://s.example/abc': 22 } }]);
+		expect(items).toEqual([{ json: { abc: 22 } }]);
 	});
 
 	it('rejects an empty path list', async () => {
 		const exec = fakeExec({ domain: DOMAIN, identifyBy: 'path', pathsDates: {} });
 		await expect(run('getLinkClicks', exec)).rejects.toThrow(NodeOperationError);
+		expect(calls(exec)).toHaveLength(0);
+	});
+
+	it('rejects a full URL with no path before any HTTP call', async () => {
+		const exec = fakeExec({
+			domain: DOMAIN,
+			identifyBy: 'path',
+			pathsDates: { link: [{ path: 'https://s.example' }] },
+		});
+		await expect(run('getLinkClicks', exec)).rejects.toThrow(/missing a path/);
 		expect(calls(exec)).toHaveLength(0);
 	});
 });
