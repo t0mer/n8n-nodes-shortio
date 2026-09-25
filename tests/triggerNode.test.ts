@@ -189,7 +189,7 @@ describe('ShortIoTrigger New Click', () => {
 	const dts = (out: Awaited<ReturnType<typeof poll>>) => out![0].map((i) => i.json.dt);
 
 	beforeEach(() => {
-		vi.useFakeTimers();
+		vi.useFakeTimers({ toFake: ['Date'] });
 		vi.setSystemTime(NOW);
 	});
 	afterEach(() => {

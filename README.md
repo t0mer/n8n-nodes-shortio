@@ -145,10 +145,10 @@ scoped to one domain won't list or resolve others. The credential test calls
 | Get Domain Statistics | |
 | Get Domain Statistics by Interval | |
 | Get Domain Top Values | **Column** and **Limit** (default 50) — see [Statistics notes](#statistics-notes) for the column list |
-| Get Link Clicks | Identify links by ID or by path; takes an optional date range only (no Period, Timezone or Filters) |
+| Get Link Clicks | Identify links by ID or by path; takes an optional date range only (no Period, Timezone or Filters). In Path mode, Created At is required per link, and the response is keyed by the bare path the node sends (not by what you enter) |
 | Get Link Statistics | |
 | Get Link Statistics by Interval | |
-| Get Link Top Values | **Column** and **Limit** (default 50) |
+| Get Link Top Values | **Column** and **Limit** (default 50). Short.io's own endpoint for this doesn't work, so it's computed from Get Domain Top Values filtered to the link's path — one extra request, and no **Prefix** (it wouldn't mean anything once the query is already scoped to a single path) |
 | Get Raw Clicks | Raw click log for a domain (most recent clicks; Short.io does not document the sort order); **Limit** defaults to 50 |
 
 See [Statistics notes](#statistics-notes) for the shared Period, Timezone and Filters parameters.

@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { NodeOperationError } from 'n8n-workflow';
 import type { IExecuteFunctions } from 'n8n-workflow';
 
-import { buildPeriod, buildStatsFilters, buildTimezone } from '../nodes/ShortIo/descriptions/statistics';
+import {
+	buildPeriod,
+	buildStatsFilters,
+	buildTimezone,
+	toStatsDateTime,
+} from '../nodes/ShortIo/descriptions/statistics';
 import { statisticsDescription } from '../nodes/ShortIo/resources/statistics/description';
 import { statisticsHandlers } from '../nodes/ShortIo/resources/statistics/execute';
 import type { ItemHandler } from '../shared/types';
@@ -49,14 +54,61 @@ describe('removed operations (404 Route not found on the live API)', () => {
 	});
 });
 
+describe('toStatsDateTime', () => {
+	// The live API rejects a zone-less date-time with a 400. September is deliberately chosen for
+	// Asia/Jerusalem: IDT (daylight saving) is +03:00 then, unlike the +02:00 winter offset (IST).
+	it("attaches the given tz's own offset to a zone-less string", () => {
+		expect(toStatsDateTime('2026-09-25T23:59:00', 'Asia/Jerusalem')).toBe(
+			'2026-09-25T23:59:00+03:00',
+		);
+	});
+
+	it('trims a zone-less string before interpreting it', () => {
+		expect(toStatsDateTime(' 2026-09-25T23:59:00 ', 'UTC')).toBe('2026-09-25T23:59:00+00:00');
+	});
+
+	it('keeps a Z-suffixed string unchanged', () => {
+		expect(toStatsDateTime('2026-09-25T23:59:00.000Z', 'Asia/Jerusalem')).toBe(
+			'2026-09-25T23:59:00.000Z',
+		);
+	});
+
+	it('keeps an explicit-offset string unchanged, preserving the given offset', () => {
+		expect(toStatsDateTime('2026-09-25T23:59:00+02:00', 'Asia/Jerusalem')).toBe(
+			'2026-09-25T23:59:00+02:00',
+		);
+	});
+
+	it("uses a Luxon-like value's own .toISO(), keeping its offset", () => {
+		const fakeDateTime = { toISO: () => '2026-09-25T23:59:00.000+02:00' };
+		expect(toStatsDateTime(fakeDateTime, 'Asia/Jerusalem')).toBe('2026-09-25T23:59:00.000+02:00');
+	});
+
+	it('converts a Date/epoch value via toIsoDate, same as before', () => {
+		expect(toStatsDateTime(new Date('2026-09-25T23:59:00.000Z'), 'Asia/Jerusalem')).toBe(
+			'2026-09-25T23:59:00.000Z',
+		);
+	});
+
+	it('throws on an unparseable zone-less string', () => {
+		expect(() => toStatsDateTime('not a date', 'UTC')).toThrow('Invalid date: not a date');
+	});
+
+	it('returns undefined for empty values', () => {
+		expect(toStatsDateTime('', 'UTC')).toBeUndefined();
+		expect(toStatsDateTime(undefined, 'UTC')).toBeUndefined();
+		expect(toStatsDateTime(null, 'UTC')).toBeUndefined();
+	});
+});
+
 describe('buildPeriod', () => {
 	it('returns only the period for a preset', () => {
 		const exec = fakeExec({ period: 'last7', startDate: '2026-01-01' });
-		expect(buildPeriod(exec, 0)).toEqual({ period: 'last7' });
+		expect(buildPeriod(exec, 0, 'UTC')).toEqual({ period: 'last7' });
 	});
 
 	it('defaults to last30', () => {
-		expect(buildPeriod(fakeExec({}), 0)).toEqual({ period: 'last30' });
+		expect(buildPeriod(fakeExec({}), 0, 'UTC')).toEqual({ period: 'last30' });
 	});
 
 	it('sends full ISO start and end date-times for custom', () => {
@@ -65,7 +117,7 @@ describe('buildPeriod', () => {
 			startDate: '2026-09-01T00:00:00.000Z',
 			endDate: '2026-09-15T23:59:59.000Z',
 		});
-		expect(buildPeriod(exec, 0)).toEqual({
+		expect(buildPeriod(exec, 0, 'UTC')).toEqual({
 			period: 'custom',
 			startDate: '2026-09-01T00:00:00.000Z',
 			endDate: '2026-09-15T23:59:59.000Z',
@@ -74,7 +126,20 @@ describe('buildPeriod', () => {
 
 	it('accepts equal start and end dates', () => {
 		const exec = fakeExec({ period: 'custom', startDate: '2026-09-01', endDate: '2026-09-01' });
-		expect(buildPeriod(exec, 0).startDate).toBe('2026-09-01T00:00:00.000Z');
+		expect(buildPeriod(exec, 0, 'UTC').startDate).toBe('2026-09-01T00:00:00+00:00');
+	});
+
+	it('attaches the Timezone parameter offset to a zone-less start/end date-time', () => {
+		const exec = fakeExec({
+			period: 'custom',
+			startDate: '2026-09-25T23:59:00',
+			endDate: '2026-09-26T00:00:00',
+		});
+		expect(buildPeriod(exec, 0, 'Asia/Jerusalem')).toEqual({
+			period: 'custom',
+			startDate: '2026-09-25T23:59:00+03:00',
+			endDate: '2026-09-26T00:00:00+03:00',
+		});
 	});
 
 	it('rejects a start date after the end date', () => {
@@ -83,12 +148,12 @@ describe('buildPeriod', () => {
 			startDate: '2026-09-15T00:00:00.000Z',
 			endDate: '2026-09-01T00:00:00.000Z',
 		});
-		expect(() => buildPeriod(exec, 0)).toThrow(/must not be after/);
+		expect(() => buildPeriod(exec, 0, 'UTC')).toThrow(/must not be after/);
 	});
 
 	it('rejects custom without both dates', () => {
 		const exec = fakeExec({ period: 'custom', startDate: '2026-09-15' });
-		expect(() => buildPeriod(exec, 0)).toThrow(NodeOperationError);
+		expect(() => buildPeriod(exec, 0, 'UTC')).toThrow(NodeOperationError);
 	});
 });
 
@@ -104,19 +169,22 @@ describe('buildTimezone', () => {
 
 describe('buildStatsFilters', () => {
 	it('splits and trims CSV columns, converts statuses and builds the date range', () => {
-		const filters = buildStatsFilters({
-			include: {
-				columns: {
-					browsers: ' Chrome, Firefox ,,Chrome',
-					statuses: '301, 404',
-					countries: ['us', 'IL'],
-					dtStart: '2026-09-01T00:00:00.000Z',
-					dtEnd: '2026-09-02T00:00:00.000Z',
-					human: true,
+		const filters = buildStatsFilters(
+			{
+				include: {
+					columns: {
+						browsers: ' Chrome, Firefox ,,Chrome',
+						statuses: '301, 404',
+						countries: ['us', 'IL'],
+						dtStart: '2026-09-01T00:00:00.000Z',
+						dtEnd: '2026-09-02T00:00:00.000Z',
+						human: true,
+					},
 				},
+				exclude: { columns: { refhosts: 'spam.example' } },
 			},
-			exclude: { columns: { refhosts: 'spam.example' } },
-		});
+			'UTC',
+		);
 		expect(filters).toEqual({
 			include: {
 				browsers: ['Chrome', 'Firefox'],
@@ -130,35 +198,38 @@ describe('buildStatsFilters', () => {
 	});
 
 	it('drops empty filter sets', () => {
-		expect(buildStatsFilters({})).toEqual({});
-		expect(buildStatsFilters(undefined)).toEqual({});
+		expect(buildStatsFilters({}, 'UTC')).toEqual({});
+		expect(buildStatsFilters(undefined, 'UTC')).toEqual({});
 		expect(
-			buildStatsFilters({ include: { columns: { browsers: ' , ', countries: [] } }, exclude: {} }),
+			buildStatsFilters(
+				{ include: { columns: { browsers: ' , ', countries: [] } }, exclude: {} },
+				'UTC',
+			),
 		).toEqual({});
 	});
 
 	it('keeps human=false as a meaningful value', () => {
-		expect(buildStatsFilters({ exclude: { columns: { human: false } } })).toEqual({
+		expect(buildStatsFilters({ exclude: { columns: { human: false } } }, 'UTC')).toEqual({
 			exclude: { human: false },
 		});
 	});
 
 	it('rejects a non-numeric status', () => {
-		expect(() => buildStatsFilters({ include: { columns: { statuses: '301, abc' } } })).toThrow(
-			/not a valid HTTP status code/,
-		);
+		expect(() =>
+			buildStatsFilters({ include: { columns: { statuses: '301, abc' } } }, 'UTC'),
+		).toThrow(/not a valid HTTP status code/);
 	});
 
 	it('rejects an invalid country code', () => {
-		expect(() => buildStatsFilters({ include: { columns: { countries: ['USA'] } } })).toThrow(
-			/not a valid country code/,
-		);
+		expect(() =>
+			buildStatsFilters({ include: { columns: { countries: ['USA'] } } }, 'UTC'),
+		).toThrow(/not a valid country code/);
 	});
 
 	it('rejects a half-set date range', () => {
-		expect(() => buildStatsFilters({ include: { columns: { dtStart: '2026-09-01' } } })).toThrow(
-			/both a start and an end/,
-		);
+		expect(() =>
+			buildStatsFilters({ include: { columns: { dtStart: '2026-09-01' } } }, 'UTC'),
+		).toThrow(/both a start and an end/);
 	});
 });
 
@@ -198,8 +269,8 @@ describe('get domain statistics', () => {
 		expect(opts.qs).toBeUndefined();
 		expect(opts.body).toEqual({
 			period: 'custom',
-			startDate: '2026-09-01T00:00:00.000Z',
-			endDate: '2026-09-02T00:00:00.000Z',
+			startDate: '2026-09-01T00:00:00+02:00',
+			endDate: '2026-09-02T00:00:00+02:00',
 			tz: 'Europe/Berlin',
 			clicksChartInterval: 'hour',
 			include: { paths: ['a', 'b'] },
@@ -263,11 +334,10 @@ describe('by-interval and top operations', () => {
 		});
 		expect(items).toHaveLength(2);
 	});
-
 });
 
 describe('get link clicks', () => {
-	it('sends GET with ids CSV and optional dates in the query', async () => {
+	it("sends GET with ids CSV and optional dates in the query, in this.getTimezone()'s offset", async () => {
 		const exec = fakeExec(
 			{
 				domain: DOMAIN,
@@ -283,10 +353,11 @@ describe('get link clicks', () => {
 		const [opts] = calls(exec);
 		expect(opts.method).toBe('GET');
 		expect(opts.url).toBe('https://statistics.short.io/statistics/domain/123/link_clicks');
+		// fakeExec's getTimezone() is 'Europe/Berlin', +02:00 (CEST) in September.
 		expect(opts.qs).toEqual({
 			ids: 'lnk_a1,link_b2',
-			startDate: '2026-09-01T00:00:00.000Z',
-			endDate: '2026-09-10T00:00:00.000Z',
+			startDate: '2026-09-01T00:00:00+02:00',
+			endDate: '2026-09-10T00:00:00+02:00',
 		});
 		expect(items).toEqual([{ json: { lnk_a1: 4, link_b2: 0 } }]);
 	});
@@ -297,7 +368,7 @@ describe('get link clicks', () => {
 		expect(calls(exec)).toHaveLength(0);
 	});
 
-	it('normalizes a full short URL and a leading-slash path to bare paths in the body', async () => {
+	it('normalizes a full short URL and a leading-slash path to bare paths, with required Created At', async () => {
 		const exec = fakeExec(
 			{
 				domain: DOMAIN,
@@ -305,8 +376,8 @@ describe('get link clicks', () => {
 				pathsDates: {
 					link: [
 						{ path: 'https://s.example/abc', createdAt: '2026-08-17T16:16:06.000Z' },
-						{ path: ' /def ', createdAt: '' },
-						{ path: 'ghi', createdAt: '' },
+						{ path: ' /def ', createdAt: '2026-08-18T00:00:00.000Z' },
+						{ path: 'ghi', createdAt: '2026-08-19T00:00:00.000Z' },
 					],
 				},
 				dateRange: { startDate: '2026-09-01' },
@@ -318,15 +389,71 @@ describe('get link clicks', () => {
 
 		const [opts] = calls(exec);
 		expect(opts.method).toBe('POST');
-		expect(opts.qs).toEqual({ startDate: '2026-09-01T00:00:00.000Z' });
+		expect(opts.qs).toEqual({ startDate: '2026-09-01T00:00:00+02:00' });
 		expect(opts.body).toEqual({
 			pathsDates: [
 				{ path: 'abc', createdAt: '2026-08-17T16:16:06.000Z' },
-				{ path: 'def' },
-				{ path: 'ghi' },
+				{ path: 'def', createdAt: '2026-08-18T00:00:00.000Z' },
+				{ path: 'ghi', createdAt: '2026-08-19T00:00:00.000Z' },
 			],
 		});
 		expect(items).toEqual([{ json: { abc: 22 } }]);
+	});
+
+	it('normalizes a scheme-less host/path, and strips a query string and trailing slash from a bare path', async () => {
+		const exec = fakeExec(
+			{
+				domain: DOMAIN,
+				identifyBy: 'path',
+				pathsDates: {
+					link: [
+						{ path: '2l0h.short.gy/abc', createdAt: '2026-08-17T16:16:06.000Z' },
+						{ path: 'def/?utm_source=x#frag', createdAt: '2026-08-18T00:00:00.000Z' },
+						{ path: 'gh%20i/', createdAt: '2026-08-19T00:00:00.000Z' },
+					],
+				},
+			},
+			[{ statusCode: 200, body: {} }],
+		);
+
+		await run('getLinkClicks', exec);
+
+		const [opts] = calls(exec);
+		expect(opts.body).toEqual({
+			pathsDates: [
+				{ path: 'abc', createdAt: '2026-08-17T16:16:06.000Z' },
+				{ path: 'def', createdAt: '2026-08-18T00:00:00.000Z' },
+				{ path: 'gh i', createdAt: '2026-08-19T00:00:00.000Z' },
+			],
+		});
+	});
+
+	it("attaches this.getTimezone()'s offset to a zone-less Created At", async () => {
+		const exec = fakeExec(
+			{
+				domain: DOMAIN,
+				identifyBy: 'path',
+				pathsDates: { link: [{ path: 'abc', createdAt: '2026-08-17T16:16:06' }] },
+			},
+			[{ statusCode: 200, body: {} }],
+		);
+
+		await run('getLinkClicks', exec);
+
+		const [opts] = calls(exec);
+		expect(opts.body).toEqual({
+			pathsDates: [{ path: 'abc', createdAt: '2026-08-17T16:16:06+02:00' }],
+		});
+	});
+
+	it('rejects a path entry missing Created At before any HTTP call', async () => {
+		const exec = fakeExec({
+			domain: DOMAIN,
+			identifyBy: 'path',
+			pathsDates: { link: [{ path: 'abc' }] },
+		});
+		await expect(run('getLinkClicks', exec)).rejects.toThrow(/needs a Created At/);
+		expect(calls(exec)).toHaveLength(0);
 	});
 
 	it('rejects an empty path list', async () => {
@@ -339,7 +466,7 @@ describe('get link clicks', () => {
 		const exec = fakeExec({
 			domain: DOMAIN,
 			identifyBy: 'path',
-			pathsDates: { link: [{ path: 'https://s.example' }] },
+			pathsDates: { link: [{ path: 'https://s.example', createdAt: '2026-08-17T16:16:06.000Z' }] },
 		});
 		await expect(run('getLinkClicks', exec)).rejects.toThrow(/missing a path/);
 		expect(calls(exec)).toHaveLength(0);
@@ -511,6 +638,61 @@ describe('link statistics', () => {
 
 		expect(items).toEqual([]);
 		expect(calls(exec)).toHaveLength(1);
+	});
+
+	it("normalizes the user's include.paths to add a missing leading slash before intersecting", async () => {
+		const exec = fakeExec(
+			{ link: LINK, column: 'browser', filters: { include: { columns: { paths: 'abc123,other' } } } },
+			[
+				{ statusCode: 200, body: { path: 'abc123', DomainId: 55 } },
+				{ statusCode: 200, body: [] },
+			],
+		);
+
+		await run('getLinkTopValues', exec);
+
+		const [, topOpts] = calls(exec);
+		expect(topOpts.body).toMatchObject({ include: { paths: ['/abc123'] } });
+	});
+
+	it('throws when the link response is missing DomainId, with no second request', async () => {
+		const exec = fakeExec({ link: LINK, column: 'browser' }, [
+			{ statusCode: 200, body: { path: 'abc123' } },
+		]);
+		await expect(run('getLinkTopValues', exec)).rejects.toThrow(
+			'Short.io returned link lnk_abc_123 without a domain or path',
+		);
+		expect(calls(exec)).toHaveLength(1);
+	});
+
+	it('throws when the link response is missing path, with no second request', async () => {
+		const exec = fakeExec({ link: LINK, column: 'browser' }, [
+			{ statusCode: 200, body: { DomainId: 55 } },
+		]);
+		await expect(run('getLinkTopValues', exec)).rejects.toThrow(
+			'Short.io returned link lnk_abc_123 without a domain or path',
+		);
+		expect(calls(exec)).toHaveLength(1);
+	});
+
+	it('reuses the /links/expand result in URL mode, skipping the extra GET /links/{id}', async () => {
+		const exec = fakeExec(
+			{ link: { __rl: true, mode: 'url', value: 'https://s.example/abc123' }, column: 'browser' },
+			[
+				{ statusCode: 200, body: { idString: 'lnk_abc_123', path: 'abc123', DomainId: 55 } },
+				{ statusCode: 200, body: [] },
+			],
+		);
+
+		await run('getLinkTopValues', exec);
+
+		expect(calls(exec)).toHaveLength(2);
+		const [expandOpts, topOpts] = calls(exec);
+		expect(expandOpts).toMatchObject({ method: 'GET', url: 'https://api.short.io/links/expand' });
+		expect(topOpts).toMatchObject({
+			method: 'POST',
+			url: 'https://statistics.short.io/statistics/domain/55/top',
+		});
 	});
 
 	it.each(['getLinkStatistics', 'getLinkStatisticsByInterval', 'getLinkTopValues'])(

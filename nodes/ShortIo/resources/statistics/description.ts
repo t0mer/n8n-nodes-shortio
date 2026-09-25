@@ -178,7 +178,8 @@ export const statisticsDescription: INodeProperties[] = [
 						name: 'createdAt',
 						type: 'dateTime',
 						default: '',
-						description: 'When the link was created',
+						required: true,
+						description: 'When the link was created. Required — the API returns a 400 without it.',
 					},
 					{
 						displayName: 'Path',

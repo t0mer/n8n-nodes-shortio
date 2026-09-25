@@ -198,6 +198,85 @@ export function filtersProperty(show: IDisplayOptions['show']): INodeProperties 
 	};
 }
 
+/** Matches a trailing UTC `Z` or a `±hh:mm`/`±hhmm` offset at the end of a date-time string. */
+const HAS_ZONE_RE = /(Z|[+-]\d{2}:?\d{2})$/;
+
+/** Loosely parses `YYYY-MM-DD[THH:mm[:ss]]` (a space is also accepted for the separator),
+ * defaulting a missing time to midnight. `undefined` when the shape doesn't match at all. */
+function parseNaiveDateTime(
+	v: string,
+): { y: number; mo: number; d: number; h: number; mi: number; s: number } | undefined {
+	const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(v);
+	if (!m) return undefined;
+	return {
+		y: Number(m[1]),
+		mo: Number(m[2]),
+		d: Number(m[3]),
+		h: Number(m[4] ?? '0'),
+		mi: Number(m[5] ?? '0'),
+		s: Number(m[6] ?? '0'),
+	};
+}
+
+/**
+ * Resolves the UTC offset (`+hh:mm`/`-hh:mm`) an IANA zone has at a given instant. Luxon (the
+ * usual tool for this) ships no TypeScript type declarations reachable from this project — despite
+ * being a transitive dependency of `n8n-workflow`, `tsc` fails with "Cannot find module 'luxon' or
+ * its corresponding type declarations" — so this uses `Intl.DateTimeFormat`'s `longOffset` zone
+ * name instead, which every supported Node version provides. `atMs` only has to land within the
+ * right side of a DST transition to resolve the correct offset, not be the exact final instant, so
+ * using a first-pass UTC interpretation of the naive local time as `atMs` is accurate enough.
+ */
+function tzOffsetAt(tz: string, atMs: number): string {
+	const parts = new Intl.DateTimeFormat('en-US', {
+		timeZone: tz,
+		timeZoneName: 'longOffset',
+	}).formatToParts(new Date(atMs));
+	const raw = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT';
+	return /^GMT([+-]\d{2}:\d{2})?$/.exec(raw)?.[1] ?? '+00:00';
+}
+
+function pad(n: number, len = 2): string {
+	return String(n).padStart(len, '0');
+}
+
+/**
+ * Normalizes a date-ish value for the statistics API's date/time fields (`startDate`/`endDate`,
+ * the `dt` filter range, and Get Link Clicks' `startDate`/`endDate`/`createdAt`) against `tz` (the
+ * node's own resolved Timezone parameter — or `this.getTimezone()` for Get Link Clicks, which has
+ * no Timezone parameter of its own). The live API returns 400 for a zone-less date-time outright;
+ * it only accepts a bare date or a full date-time carrying `Z` or a `±hh:mm` offset. So a zone-less
+ * string (no trailing `Z`/offset — the shape n8n's dateTime picker emits for a value typed without
+ * a timezone) is interpreted in `tz`, not in whatever zone the n8n host process happens to run in
+ * (which is what `toIsoDate`'s plain `new Date(...)` conversion would otherwise silently apply),
+ * and sent with that zone's own offset attached. A string that already carries an explicit zone is
+ * sent unchanged, preserving its given offset as-is. A `Date`, an epoch number, or a Luxon-like
+ * value exposing `.toISO()` all go through `toIsoDate` as before. `''`/`null`/`undefined` become
+ * `undefined`, same as `toIsoDate`.
+ */
+export function toStatsDateTime(v: unknown, tz: string): string | undefined {
+	if (typeof v === 'string') {
+		const trimmed = v.trim();
+		if (trimmed === '') return undefined;
+
+		if (HAS_ZONE_RE.test(trimmed)) {
+			if (Number.isNaN(Date.parse(trimmed))) {
+				throw new Error(`Invalid date: ${v}`);
+			}
+			return trimmed;
+		}
+
+		const parts = parseNaiveDateTime(trimmed);
+		if (!parts || Number.isNaN(Date.parse(trimmed))) {
+			throw new Error(`Invalid date: ${v}`);
+		}
+		const utcGuess = Date.UTC(parts.y, parts.mo - 1, parts.d, parts.h, parts.mi, parts.s);
+		const offset = tzOffsetAt(tz, utcGuess);
+		return `${pad(parts.y, 4)}-${pad(parts.mo)}-${pad(parts.d)}T${pad(parts.h)}:${pad(parts.mi)}:${pad(parts.s)}${offset}`;
+	}
+	return toIsoDate(v);
+}
+
 function splitCsv(v: unknown): string[] {
 	let raw: unknown[];
 	if (Array.isArray(v)) raw = v;
@@ -221,7 +300,7 @@ const CSV_COLUMNS = [
 	'utmSources',
 ] as const;
 
-function buildFilterSet(columns: IDataObject, label: string): IDataObject | undefined {
+function buildFilterSet(columns: IDataObject, label: string, tz: string): IDataObject | undefined {
 	const out: IDataObject = {};
 
 	for (const key of CSV_COLUMNS) {
@@ -247,8 +326,8 @@ function buildFilterSet(columns: IDataObject, label: string): IDataObject | unde
 	});
 	if (countries.length > 0) out.countries = [...new Set(countries)];
 
-	const dtStart = toIsoDate(columns.dtStart);
-	const dtEnd = toIsoDate(columns.dtEnd);
+	const dtStart = toStatsDateTime(columns.dtStart, tz);
+	const dtEnd = toStatsDateTime(columns.dtEnd, tz);
 	if (dtStart !== undefined || dtEnd !== undefined) {
 		if (dtStart === undefined || dtEnd === undefined) {
 			throw new Error(`${label} filter: Date Range needs both a start and an end`);
@@ -269,7 +348,10 @@ function buildFilterSet(columns: IDataObject, label: string): IDataObject | unde
  * CSV columns are split and trimmed, statuses become numbers, countries are validated, and the
  * two Date Range fields become `dt: [start, end]`. Empty filter sets are dropped.
  */
-export function buildStatsFilters(raw: unknown): { include?: IDataObject; exclude?: IDataObject } {
+export function buildStatsFilters(
+	raw: unknown,
+	tz: string,
+): { include?: IDataObject; exclude?: IDataObject } {
 	const result: { include?: IDataObject; exclude?: IDataObject } = {};
 	if (raw === null || typeof raw !== 'object') return result;
 	const value = raw as IDataObject;
@@ -277,7 +359,7 @@ export function buildStatsFilters(raw: unknown): { include?: IDataObject; exclud
 	for (const kind of ['include', 'exclude'] as const) {
 		const entry = value[kind] as IDataObject | undefined;
 		const columns = (entry?.columns ?? {}) as IDataObject;
-		const set = buildFilterSet(columns, kind === 'include' ? 'Include' : 'Exclude');
+		const set = buildFilterSet(columns, kind === 'include' ? 'Include' : 'Exclude', tz);
 		if (set) result[kind] = set;
 	}
 	return result;
@@ -290,17 +372,17 @@ export interface PeriodFields extends IDataObject {
 }
 
 /**
- * Reads `period` (and, for `custom`, the required `startDate`/`endDate`) for item `i`. Dates are
- * sent as full ISO date-times (the API treats a bare `YYYY-MM-DD` end date as midnight at the
- * start of that day, excluding the whole day); a start date after the end date is rejected before
- * any HTTP call.
+ * Reads `period` (and, for `custom`, the required `startDate`/`endDate`) for item `i`, via
+ * {@link toStatsDateTime} (a bare `YYYY-MM-DD` date is rejected by neither helper, but the API
+ * treats a bare end date as midnight at the start of that day, excluding the whole day — use a
+ * full date-time). A start date after the end date is rejected before any HTTP call.
  */
-export function buildPeriod(fn: IExecuteFunctions, i: number): PeriodFields {
+export function buildPeriod(fn: IExecuteFunctions, i: number, tz: string): PeriodFields {
 	const period = fn.getNodeParameter('period', i, 'last30') as string;
 	if (period !== 'custom') return { period };
 
-	const startDate = toIsoDate(fn.getNodeParameter('startDate', i, ''));
-	const endDate = toIsoDate(fn.getNodeParameter('endDate', i, ''));
+	const startDate = toStatsDateTime(fn.getNodeParameter('startDate', i, ''), tz);
+	const endDate = toStatsDateTime(fn.getNodeParameter('endDate', i, ''), tz);
 	if (startDate === undefined || endDate === undefined) {
 		throw new NodeOperationError(fn.getNode(), 'Start Date and End Date are required when Period is Custom', {
 			itemIndex: i,

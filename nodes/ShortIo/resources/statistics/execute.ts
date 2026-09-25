@@ -6,31 +6,53 @@ import {
 	LINK_ID_REGEX,
 	parseShortUrl,
 	resolveDomainId,
+	resolveLink,
 	resolveLinkId,
+	resolvePositiveInt,
 } from '../../../../shared/locators';
 import { shortIoRequest, type ShortIoRequest } from '../../../../shared/transport';
 import type { OperationEntry } from '../../../../shared/types';
-import { buildPeriod, buildStatsFilters, buildTimezone } from '../../descriptions/statistics';
+import {
+	buildPeriod,
+	buildStatsFilters,
+	buildTimezone,
+	toStatsDateTime,
+} from '../../descriptions/statistics';
 
 const LINK_ID_RE = new RegExp(LINK_ID_REGEX);
 
 /**
- * `POST link_clicks` with `pathsDates` matches only the bare link path (no scheme, host or leading
- * slash); a full short URL or a `/`-prefixed path returns 0 silently (Part C evidence). Accepts
- * either shape: a full URL (has a `scheme://`) is parsed with {@link parseShortUrl} and only its
- * path kept (the host is ignored, since this endpoint takes no domain); anything else is treated
- * as an already-bare path with just a leading slash stripped.
+ * `POST link_clicks` with `pathsDates` matches only the bare link path (no scheme, host, leading
+ * slash, query string or fragment); a full short URL or a `/`-prefixed path returns 0 silently
+ * (Part C evidence). Handles two input shapes consistently:
+ * - A full URL (has a `scheme://`) or a scheme-less `host/path` (its first `/`-separated segment
+ *   contains a `.`, e.g. `2l0h.short.gy/abc123`) is parsed with {@link parseShortUrl} and only its
+ *   `.path` is kept — the host is discarded, since this endpoint takes no domain.
+ * - Anything else is treated as an already-bare path: a query string or fragment and a leading or
+ *   trailing slash are stripped, then it's percent-decoded (kept as-is on a malformed sequence,
+ *   same fallback as `parseShortUrl`).
  */
 function bareClickPath(raw: string): string {
 	const hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw);
-	return hasScheme ? parseShortUrl(raw).path : raw.replace(/^\/+/, '');
+	const firstSegment = raw.split('/')[0];
+	const looksLikeHost = !hasScheme && raw.includes('/') && firstSegment.includes('.');
+	if (hasScheme || looksLikeHost) {
+		return parseShortUrl(raw).path;
+	}
+
+	const bare = raw.split(/[?#]/)[0].replace(/^\/+/, '').replace(/\/+$/, '');
+	try {
+		return decodeURIComponent(bare);
+	} catch {
+		return bare;
+	}
 }
 
 /** Period, tz and include/exclude filters for item `i`, all validated locally. */
 function commonParams(this: IExecuteFunctions, i: number) {
-	const period = buildPeriod(this, i);
 	const tz = buildTimezone(this, i);
-	const filters = buildStatsFilters(this.getNodeParameter('filters', i, {}));
+	const period = buildPeriod(this, i, tz);
+	const filters = buildStatsFilters(this.getNodeParameter('filters', i, {}), tz);
 	return { period, tz, filters, hasFilters: Object.keys(filters).length > 0 };
 }
 
@@ -104,9 +126,11 @@ async function getDomainTopValues(this: IExecuteFunctions, i: number): Promise<I
 
 async function getLinkClicks(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
 	const identifyBy = this.getNodeParameter('identifyBy', i, 'id') as string;
+	// Get Link Clicks has no Timezone parameter of its own.
+	const tz = this.getTimezone();
 	const dateRange = this.getNodeParameter('dateRange', i, {}) as IDataObject;
-	const startDate = toIsoDate(dateRange.startDate);
-	const endDate = toIsoDate(dateRange.endDate);
+	const startDate = toStatsDateTime(dateRange.startDate, tz);
+	const endDate = toStatsDateTime(dateRange.endDate, tz);
 	if (startDate !== undefined && endDate !== undefined && startDate > endDate) {
 		throw new NodeOperationError(
 			this.getNode(),
@@ -138,7 +162,14 @@ async function getLinkClicks(this: IExecuteFunctions, i: number): Promise<INodeE
 					itemIndex: i,
 				});
 			}
-			return compact({ path, createdAt: toIsoDate(entry.createdAt) });
+			// The API returns 400 without createdAt on every entry, so it isn't optional here.
+			const createdAt = toStatsDateTime(entry.createdAt, tz);
+			if (createdAt === undefined) {
+				throw new NodeOperationError(this.getNode(), `"${rawPath}" needs a Created At`, {
+					itemIndex: i,
+				});
+			}
+			return { path, createdAt };
 		});
 		if (pathsDates.length === 0) {
 			throw new NodeOperationError(this.getNode(), 'Add at least one link', { itemIndex: i });
@@ -244,31 +275,55 @@ async function getLinkStatisticsByInterval(
 /**
  * `POST /statistics/link/{id}/top` returns 404 "Link undefined not found" for every id format on
  * the live API (Part C evidence). The documented workaround is Get Domain Top Values scoped to
- * just this link's path: resolve the link's `path`/`DomainId` via `GET /links/{id}`, then narrow
- * (or intersect, if the user already set an Include Paths filter) the request to that one path.
+ * just this link's path: resolve the link's `path`/`DomainId` (reusing the `/links/expand` result
+ * when the locator's `url` mode already fetched one; otherwise `GET /links/{id}`), then narrow (or
+ * intersect, if the user already set an Include Paths filter) the request to that one path. Throws
+ * if Short.io's own link response is missing a domain or path — it's meant to always have both.
  */
 async function getLinkTopValues(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
 	const { period, tz, filters } = commonParams.call(this, i);
 	const column = this.getNodeParameter('column', i) as string;
 	const limit = this.getNodeParameter('limit', i, 50) as number;
-	const linkId = await resolveLinkId.call(this, this.getNodeParameter('link', i), i);
 
-	const link = (await shortIoRequest.call(this, {
-		method: 'GET',
-		path: `/links/${linkId}`,
-		resource: 'link',
-		itemIndex: i,
-	})) as { path?: string; DomainId?: number };
-	const linkPath = `/${link.path ?? ''}`;
+	// In `url` mode, resolveLink's /links/expand already returned the full link object; reuse it
+	// instead of a second GET /links/{id}. In `id` mode it only has `idString` (no HTTP call was
+	// made yet), so a request is still needed.
+	const resolved = await resolveLink.call(this, this.getNodeParameter('link', i), i);
+	const link =
+		typeof resolved.path === 'string' && resolved.DomainId !== undefined
+			? resolved
+			: ((await shortIoRequest.call(this, {
+					method: 'GET',
+					path: `/links/${encodeURIComponent(resolved.idString)}`,
+					resource: 'link',
+					itemIndex: i,
+				})) as IDataObject);
 
-	const userPaths = filters.include?.paths as string[] | undefined;
+	if (
+		typeof link.path !== 'string' ||
+		link.path === '' ||
+		link.DomainId === undefined ||
+		link.DomainId === null
+	) {
+		throw new NodeOperationError(
+			this.getNode(),
+			`Short.io returned link ${resolved.idString} without a domain or path`,
+			{ itemIndex: i },
+		);
+	}
+	const domainId = resolvePositiveInt.call(this, String(link.DomainId), 'Domain ID', i);
+	const linkPath = `/${link.path}`;
+
+	const userPaths = (filters.include?.paths as string[] | undefined)?.map((p) =>
+		p.startsWith('/') ? p : `/${p}`,
+	);
 	if (userPaths !== undefined && !userPaths.includes(linkPath)) return [];
 
 	const include = { ...filters.include, paths: [linkPath] };
 
 	const response = await statsRequest.call(this, {
 		method: 'POST',
-		path: `/domain/${link.DomainId}/top`,
+		path: `/domain/${domainId}/top`,
 		body: compact({ column, limit, ...period, tz, ...filters, include }),
 		resource: 'domain',
 		itemIndex: i,

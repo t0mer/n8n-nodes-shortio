@@ -1,5 +1,5 @@
 import { NodeOperationError } from 'n8n-workflow';
-import type { IExecuteFunctions, INodeParameterResourceLocator } from 'n8n-workflow';
+import type { IDataObject, IExecuteFunctions, INodeParameterResourceLocator } from 'n8n-workflow';
 
 import { shortIoRequest, type ShortIoContext, type ShortIoRequest } from './transport';
 
@@ -118,6 +118,46 @@ export function parseShortUrl(input: string): { hostname: string; path: string }
 	return { hostname: url.hostname.toLowerCase(), path };
 }
 
+export interface ResolvedLink extends IDataObject {
+	idString: string;
+}
+
+/**
+ * Shared implementation for {@link resolveLinkId} and {@link resolveLink}.
+ * Mode `id`: validates the id locally, no HTTP call, returns just `{ idString }`.
+ * Mode `url`: resolves the short URL via `GET /links/expand`, which already returns the full link
+ * object (path, DomainId, etc.) — returned as-is.
+ */
+async function resolveLinkObject(
+	this: IExecuteFunctions,
+	param: unknown,
+	i: number,
+): Promise<ResolvedLink> {
+	const mode =
+		param !== null && typeof param === 'object' && '__rl' in (param as object)
+			? (param as INodeParameterResourceLocator).mode
+			: 'id';
+	const value = locatorValue(param);
+
+	if (mode === 'url') {
+		const { hostname, path } = parseShortUrl(value);
+		return await typedRequest<ResolvedLink>(this, {
+			method: 'GET',
+			path: '/links/expand',
+			qs: { domain: hostname, path },
+			resource: 'link',
+			itemIndex: i,
+		});
+	}
+
+	if (!LINK_ID_RE.test(value)) {
+		throw new NodeOperationError(this.getNode(), `"${value}" is not a valid link ID`, {
+			itemIndex: i,
+		});
+	}
+	return { idString: value };
+}
+
 /**
  * Resolves a Link resourceLocator to its `lnk_…`/`link_…` idString.
  * Mode `id`: validates the id locally, no HTTP call.
@@ -128,30 +168,22 @@ export async function resolveLinkId(
 	param: unknown,
 	i: number,
 ): Promise<string> {
-	const mode =
-		param !== null && typeof param === 'object' && '__rl' in (param as object)
-			? (param as INodeParameterResourceLocator).mode
-			: 'id';
-	const value = locatorValue(param);
+	return (await resolveLinkObject.call(this, param, i)).idString;
+}
 
-	if (mode === 'url') {
-		const { hostname, path } = parseShortUrl(value);
-		const link = await typedRequest<{ idString: string }>(this, {
-			method: 'GET',
-			path: '/links/expand',
-			qs: { domain: hostname, path },
-			resource: 'link',
-			itemIndex: i,
-		});
-		return link.idString;
-	}
-
-	if (!LINK_ID_RE.test(value)) {
-		throw new NodeOperationError(this.getNode(), `"${value}" is not a valid link ID`, {
-			itemIndex: i,
-		});
-	}
-	return value;
+/**
+ * Like {@link resolveLinkId}, but returns the full link object when the locator's `url` mode
+ * already fetched one via `GET /links/expand` — so a caller that needs more than the id (e.g.
+ * `path`/`DomainId`) can skip a second `GET /links/{id}`. In `id` mode there's no such object yet
+ * (no HTTP call was made), so only `{ idString }` comes back and the caller still needs its own
+ * request for anything beyond the id.
+ */
+export async function resolveLink(
+	this: IExecuteFunctions,
+	param: unknown,
+	i: number,
+): Promise<ResolvedLink> {
+	return resolveLinkObject.call(this, param, i);
 }
 
 const FOLDER_ID_RE = /^[A-Za-z0-9_-]+$/;

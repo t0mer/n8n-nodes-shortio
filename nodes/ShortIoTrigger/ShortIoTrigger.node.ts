@@ -154,13 +154,16 @@ async function fetchClicks(this: IPollFunctions, opts: FetchOptions): Promise<ID
 		const oldest = dates.length > 0 ? Math.min(...dates) : NaN;
 
 		if (list.length < CLICK_PAGE_SIZE || added === 0) {
-			// A full page that added nothing new but is still newer than the mark means there may
-			// be unseen clicks between them that the ~60 s response cache held back; the next
-			// poll's fresh `endDate` should pick them up, but warn so a persistent gap is visible
-			// (deferred Minor from the Task 22 review).
+			// A full page that added nothing new but is still newer than the mark most likely means
+			// either more than CLICK_PAGE_SIZE clicks landed within the same millisecond (dt's
+			// precision can't separate them, so the beforeDate/afterDate cursors can't page past
+			// them), or the API silently ignored the cursor for this request. Either way, clicks
+			// older than this page may be stuck behind it; the next poll's fresh `endDate` gives it
+			// another chance, but warn so a persistent gap is visible (deferred Minor from the Task
+			// 22 review).
 			if (list.length === CLICK_PAGE_SIZE && !Number.isNaN(oldest) && oldest > markMs) {
 				this.logger.warn(
-					'Short.io Trigger: New Click got a full page with no new clicks while still newer than the saved mark; clicks between them may be delayed to a later poll',
+					'Short.io Trigger: New Click got a full page with no new clicks while still newer than the saved mark (likely over 100 clicks in the same millisecond, or the API ignored the cursor); older clicks may be delayed to a later poll',
 				);
 			}
 			break;
