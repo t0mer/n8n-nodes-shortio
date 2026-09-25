@@ -409,6 +409,26 @@ describe('link delete / archive / unarchive many', () => {
 	});
 
 	it.each([
+		['Archive Many', archiveMany] as const,
+		['Unarchive Many', unarchiveMany] as const,
+	])(
+		'%s chunks at 150 and sleeps 1000 ms between chunks (undocumented rate limit hit live)',
+		async (_name, handler) => {
+			const params = Array.from({ length: 151 }, (_, i) => ({ link: link(`link_${i}`) }));
+			const exec = fakeExec(params, [
+				{ statusCode: 200, body: { success: true } },
+				{ statusCode: 200, body: { success: true } },
+			]);
+
+			await run(handler, exec, 151);
+
+			expect(calls(exec)).toHaveLength(2);
+			expect(sleep).toHaveBeenCalledTimes(1);
+			expect(sleep).toHaveBeenCalledWith(1000);
+		},
+	);
+
+	it.each([
 		['Archive Many', archiveMany, '/links/archive_bulk'],
 		['Unarchive Many', unarchiveMany, '/links/unarchive_bulk'],
 	])('%s posts link_ids to %s', async (_name, handler, path) => {

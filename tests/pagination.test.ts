@@ -39,6 +39,39 @@ describe('paginateOffset', () => {
 		expect(items).toEqual([]);
 		expect(fetchPage).toHaveBeenCalledTimes(1);
 	});
+
+	it('stops if a page is identical to the previous one, as a loop guard against an offset the endpoint ignores', async () => {
+		// A full page every time, offset never actually respected server-side: without a guard this
+		// would never see a short page and would loop forever.
+		const fetchPage = vi.fn(async () => [1, 2]);
+
+		const items = await paginateOffset(fetchPage, undefined, 2);
+
+		expect(items).toEqual([1, 2]);
+		expect(fetchPage).toHaveBeenCalledTimes(2); // one call that returns [1,2], one identical repeat
+	});
+
+	it('does not stop early when consecutive full pages merely have the same length but different content', async () => {
+		const pages = [
+			[1, 2],
+			[3, 4],
+			[5],
+		];
+		const fetchPage = vi.fn(async (offset: number, pageSize: number) => pages[offset / pageSize] ?? []);
+
+		const items = await paginateOffset(fetchPage, undefined, 2);
+
+		expect(items).toEqual([1, 2, 3, 4, 5]);
+	});
+
+	it('stops at a hard cap of pages even when every page is full and distinct (never-ending pagination)', async () => {
+		const fetchPage = vi.fn(async (offset: number) => [offset]); // always length 1 == pageSize, always distinct
+
+		const items = await paginateOffset(fetchPage, undefined, 1);
+
+		expect(fetchPage).toHaveBeenCalledTimes(1000);
+		expect(items).toHaveLength(1000);
+	});
 });
 
 describe('paginateToken', () => {

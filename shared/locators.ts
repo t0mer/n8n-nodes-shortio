@@ -126,7 +126,10 @@ export interface ResolvedLink extends IDataObject {
  * Shared implementation for {@link resolveLinkId} and {@link resolveLink}.
  * Mode `id`: validates the id locally, no HTTP call, returns just `{ idString }`.
  * Mode `url`: resolves the short URL via `GET /links/expand`, which already returns the full link
- * object (path, DomainId, etc.) — returned as-is.
+ * object (path, DomainId, etc.) — its `idString` is validated the same way as mode `id`'s before
+ * being returned, since callers (e.g. `resolveLinkId`) interpolate it into a request path
+ * unescaped; the response should always match, but that's exactly why an unexpected value is worth
+ * rejecting loudly here rather than trusting it into a path downstream.
  */
 async function resolveLinkObject(
 	this: IExecuteFunctions,
@@ -141,13 +144,21 @@ async function resolveLinkObject(
 
 	if (mode === 'url') {
 		const { hostname, path } = parseShortUrl(value);
-		return await typedRequest<ResolvedLink>(this, {
+		const link = await typedRequest<ResolvedLink>(this, {
 			method: 'GET',
 			path: '/links/expand',
 			qs: { domain: hostname, path },
 			resource: 'link',
 			itemIndex: i,
 		});
+		if (!LINK_ID_RE.test(link.idString)) {
+			throw new NodeOperationError(
+				this.getNode(),
+				`Short.io returned an unexpected link ID for "${value}": "${link.idString}"`,
+				{ itemIndex: i },
+			);
+		}
+		return link;
 	}
 
 	if (!LINK_ID_RE.test(value)) {

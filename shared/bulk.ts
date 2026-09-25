@@ -9,10 +9,11 @@ import type { IDataObject, INodeExecutionData } from 'n8n-workflow';
 export const BULK_LIMITS = {
 	createMany: { size: 1000, minIntervalMs: 2000 }, // 5 req / 10 s
 	deleteMany: { size: 150, minIntervalMs: 1000 }, // 1 req / s
-	archiveMany: { size: 150, minIntervalMs: 0 },
-	unarchiveMany: { size: 150, minIntervalMs: 0 },
+	// Undocumented: live testing hit 429s on these three, with Retry-After up to 24s.
+	archiveMany: { size: 150, minIntervalMs: 1000 },
+	unarchiveMany: { size: 150, minIntervalMs: 1000 },
 	tagMany: { size: 150, minIntervalMs: 0 },
-	qrMany: { size: 150, minIntervalMs: 0 },
+	qrMany: { size: 150, minIntervalMs: 1000 },
 } as const;
 
 export interface ChunkPlan {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { sleep } from 'n8n-workflow';
 import {
+	BULK_LIMITS,
 	chunk,
 	forEachChunk,
 	mapCreateManyResults,
@@ -14,6 +15,14 @@ vi.mock('n8n-workflow', async (orig) => ({
 
 beforeEach(() => {
 	vi.mocked(sleep).mockClear();
+});
+
+describe('BULK_LIMITS', () => {
+	it('paces archiveMany, unarchiveMany and qrMany at 1000ms (undocumented 429s hit in live testing)', () => {
+		expect(BULK_LIMITS.archiveMany.minIntervalMs).toBe(1000);
+		expect(BULK_LIMITS.unarchiveMany.minIntervalMs).toBe(1000);
+		expect(BULK_LIMITS.qrMany.minIntervalMs).toBe(1000);
+	});
 });
 
 describe('chunk', () => {

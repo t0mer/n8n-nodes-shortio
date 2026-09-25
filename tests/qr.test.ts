@@ -175,7 +175,9 @@ describe('link generate QR codes many', () => {
 		expect((bulkCalls[0].body as { linkIds: string[] }).linkIds).toHaveLength(150);
 		expect(bulkCalls[0].body).toMatchObject({ domainId: '1', type: 'png', useDomainSettings: true });
 		expect((bulkCalls[1].body as { linkIds: string[] }).linkIds).toEqual(['link_150']);
-		expect(sleep).not.toHaveBeenCalled();
+		// Undocumented rate limit hit in live testing (429s, Retry-After up to 24s): pace at 1s.
+		expect(sleep).toHaveBeenCalledTimes(1);
+		expect(sleep).toHaveBeenCalledWith(1000);
 
 		expect(out).toHaveLength(2);
 		expect(out[0].pairedItem).toEqual(Array.from({ length: 150 }, (_, i) => ({ item: i })));

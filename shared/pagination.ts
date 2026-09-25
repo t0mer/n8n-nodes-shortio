@@ -1,7 +1,18 @@
+/** Hard cap on the number of pages {@link paginateOffset} will ever fetch, regardless of `limit` —
+ * a last-resort backstop against an endpoint that never returns a short page (offset silently
+ * ignored server-side, or similar), independent of the same-page loop guard below. */
+const MAX_OFFSET_PAGES = 1000;
+
 /**
  * Walks an offset-paginated endpoint, calling `fetchPage(offset, pageSize)` until a page comes
  * back shorter than `pageSize` (the last page) or `limit` has been reached, then trims the
  * combined results to `limit`. `limit` of `undefined` fetches everything.
+ *
+ * Two loop guards protect against an endpoint that doesn't actually respect `offset` (returning
+ * the same full page forever, which would otherwise loop until memory/timeout limits are hit):
+ * a page that is exactly identical (same length and content) to the immediately preceding one
+ * stops the walk — offset-based pagination making no progress is never valid, unlike a token
+ * walk's transient repeat — and a hard cap of {@link MAX_OFFSET_PAGES} pages stops it regardless.
  */
 export async function paginateOffset<T>(
 	fetchPage: (offset: number, pageSize: number) => Promise<T[]>,
@@ -10,9 +21,15 @@ export async function paginateOffset<T>(
 ): Promise<T[]> {
 	const items: T[] = [];
 	let offset = 0;
+	let previousPageJson: string | undefined;
 
-	for (;;) {
+	for (let pageCount = 0; pageCount < MAX_OFFSET_PAGES; pageCount++) {
 		const page = await fetchPage(offset, pageSize);
+
+		const pageJson = JSON.stringify(page);
+		if (pageJson === previousPageJson) break;
+		previousPageJson = pageJson;
+
 		items.push(...page);
 
 		if (page.length < pageSize) break;

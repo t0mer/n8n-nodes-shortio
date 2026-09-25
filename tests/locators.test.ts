@@ -99,6 +99,19 @@ describe('resolveLinkId', () => {
 			.mock.calls[0];
 		expect(call[1]).toMatchObject({ qs: { domain: 's.gy', path: 'abc' } });
 	});
+
+	it('rejects an unexpected idString shape returned by GET /links/expand before it can be used in a path', async () => {
+		// Defense in depth: idString is later interpolated unescaped into a request path (e.g.
+		// `/links/${id}`), so an unexpected value from the API response must never reach a caller.
+		const ctx = fakeCtx([{ statusCode: 200, body: { idString: '../etc/passwd' } }]);
+		await expect(
+			resolveLinkId.call(
+				ctx as unknown as IExecuteFunctions,
+				{ __rl: true, mode: 'url', value: 'https://s.gy/abc' },
+				0,
+			),
+		).rejects.toThrow(NodeOperationError);
+	});
 });
 
 describe('DomainCache', () => {
