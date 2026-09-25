@@ -363,7 +363,8 @@ export const linkDescription: INodeProperties[] = [
 				name: 'idString',
 				type: 'string',
 				default: '',
-				description: 'Only return the link with this ID string',
+				description:
+					"Only return the link with this ID string. Short.io doesn't filter by ID server-side; the node scans pages and returns the matching link. For a single known ID, Link → Get is faster.",
 			},
 		],
 	},

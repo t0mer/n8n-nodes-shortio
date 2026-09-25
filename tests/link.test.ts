@@ -199,7 +199,6 @@ describe('link get many', () => {
 					createdAt: '2026-02-01T00:00:00.000Z',
 					dateSortOrder: 'asc',
 					folderId: { __rl: true, mode: 'list', value: 'fld_1' },
-					idString: 'lnk_abc_d',
 				},
 			},
 			[{ statusCode: 200, body: { count: 0, links: [], nextPageToken: null } }],
@@ -216,8 +215,59 @@ describe('link get many', () => {
 			createdAt: '2026-02-01T00:00:00.000Z',
 			dateSortOrder: 'asc',
 			folderId: 'fld_1',
-			idString: 'lnk_abc_d',
 		});
+	});
+
+	it('filters by ID string client-side across pages, never sending it as a query param', async () => {
+		// The live API ignores `idString` server-side and returns every link, so the node must not
+		// send it and must find the match itself.
+		const exec = fakeExec(
+			{
+				domain: { __rl: true, mode: 'id', value: '5' },
+				returnAll: true,
+				filters: { idString: 'link_b' },
+			},
+			[
+				{
+					statusCode: 200,
+					body: { count: 2, links: [{ idString: 'link_a' }], nextPageToken: 'page_2' },
+				},
+				{
+					statusCode: 200,
+					body: { count: 2, links: [{ idString: 'link_b' }], nextPageToken: null },
+				},
+			],
+		);
+
+		const items = await run(linkHandlers.getMany, exec, 0, newCtx());
+
+		expect(exec.helpers.httpRequestWithAuthentication).toHaveBeenCalledTimes(2);
+		const [, firstOpts] = calls(exec)[0] as [string, { qs: Record<string, unknown> }];
+		expect(firstOpts.qs.idString).toBeUndefined();
+		const [, secondOpts] = calls(exec)[1] as [string, { qs: Record<string, unknown> }];
+		expect(secondOpts.qs.idString).toBeUndefined();
+		expect(items).toHaveLength(1);
+		expect(items[0].json).toEqual({ idString: 'link_b' });
+	});
+
+	it('returns zero items when the ID string filter matches nothing after exhausting the pages', async () => {
+		const exec = fakeExec(
+			{
+				domain: { __rl: true, mode: 'id', value: '5' },
+				returnAll: true,
+				filters: { idString: 'link_zzz' },
+			},
+			[
+				{
+					statusCode: 200,
+					body: { count: 1, links: [{ idString: 'link_a' }], nextPageToken: null },
+				},
+			],
+		);
+
+		const items = await run(linkHandlers.getMany, exec, 0, newCtx());
+
+		expect(items).toEqual([]);
 	});
 
 	it('drops an empty folderId filter instead of sending an empty string', async () => {

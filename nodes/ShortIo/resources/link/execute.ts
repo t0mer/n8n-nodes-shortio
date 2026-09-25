@@ -3,7 +3,7 @@ import type { IDataObject, IExecuteFunctions, INodeExecutionData } from 'n8n-wor
 
 import { buildLinkBody, compact, toIsoDate } from '../../../../shared/fields';
 import { locatorValue, resolveDomainId, resolveLinkId } from '../../../../shared/locators';
-import { paginateToken } from '../../../../shared/pagination';
+import { paginateToken, paginateTokenFind } from '../../../../shared/pagination';
 import { shortIoRequest } from '../../../../shared/transport';
 import type { ExecContext, OperationEntry } from '../../../../shared/types';
 
@@ -138,34 +138,41 @@ async function getMany(this: IExecuteFunctions, i: number): Promise<INodeExecuti
 	const filters = this.getNodeParameter('filters', i, {}) as LinkGetManyFilters;
 
 	const domainId = resolveDomainId(domainParam);
+	// Short.io's `GET /api/links` ignores the `idString` query parameter, so it's never sent; a
+	// match is found by scanning pages client-side instead (see `getMany`'s branch below).
+	const idString = filters.idString;
 	const filterQs = compact({
 		afterDate: toIsoDate(filters.afterDate),
 		beforeDate: toIsoDate(filters.beforeDate),
 		createdAt: toIsoDate(filters.createdAt),
 		dateSortOrder: filters.dateSortOrder,
 		folderId: filters.folderId !== undefined ? locatorValue(filters.folderId) : undefined,
-		idString: filters.idString,
 	});
 
-	const links = await paginateToken<IDataObject>(
-		async (token, pageSize) => {
-			const response = (await shortIoRequest.call(this, {
-				method: 'GET',
-				path: '/api/links',
-				qs: {
-					domain_id: domainId,
-					limit: pageSize,
-					...(token !== undefined ? { pageToken: token } : {}),
-					...filterQs,
-				},
-				resource: 'link',
-				itemIndex: i,
-			})) as { links: IDataObject[]; nextPageToken?: string | null };
-			return { items: response.links, next: response.nextPageToken };
-		},
-		limit,
-		150,
-	);
+	const fetchPage = async (token: string | undefined, pageSize: number) => {
+		const response = (await shortIoRequest.call(this, {
+			method: 'GET',
+			path: '/api/links',
+			qs: {
+				domain_id: domainId,
+				limit: pageSize,
+				...(token !== undefined ? { pageToken: token } : {}),
+				...filterQs,
+			},
+			resource: 'link',
+			itemIndex: i,
+		})) as { links: IDataObject[]; nextPageToken?: string | null };
+		return { items: response.links, next: response.nextPageToken };
+	};
+
+	const links = idString
+		? await paginateTokenFind<IDataObject>(
+				fetchPage,
+				(link) => link.idString === idString || link.id === idString,
+				limit,
+				150,
+			)
+		: await paginateToken<IDataObject>(fetchPage, limit, 150);
 
 	return this.helpers.returnJsonArray(links);
 }

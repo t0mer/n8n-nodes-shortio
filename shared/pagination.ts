@@ -25,6 +25,51 @@ export async function paginateOffset<T>(
 }
 
 /**
+ * Like {@link paginateToken}, but stops as soon as `predicate` matches an item on a page, returning
+ * just that item (or an empty array if pagination is exhausted first). For endpoints whose
+ * server-side filter doesn't work, the caller fetches unfiltered pages and matches client-side;
+ * this walks pages using the same `limit`/`maxPageSize` and loop guards as `paginateToken`, without
+ * collecting every item into memory.
+ */
+export async function paginateTokenFind<T>(
+	fetchPage: (
+		token: string | undefined,
+		pageSize: number,
+	) => Promise<{ items: T[]; next?: string | null }>,
+	predicate: (item: T) => boolean,
+	limit: number | undefined,
+	maxPageSize: number,
+): Promise<T[]> {
+	const seenTokens = new Set<string>();
+	let token: string | undefined;
+	let fetched = 0;
+
+	for (;;) {
+		const remaining = limit !== undefined ? limit - fetched : undefined;
+		if (remaining !== undefined && remaining <= 0) break;
+		const pageSize = remaining !== undefined ? Math.min(remaining, maxPageSize) : maxPageSize;
+
+		const page = await fetchPage(token, pageSize);
+		const match = page.items.find(predicate);
+		if (match !== undefined) return [match];
+
+		fetched += page.items.length;
+
+		if (page.items.length === 0) break;
+		if (limit !== undefined && fetched >= limit) break;
+
+		const next = page.next ?? undefined;
+		if (next === undefined) break;
+		if (seenTokens.has(next)) break;
+
+		seenTokens.add(next);
+		token = next;
+	}
+
+	return [];
+}
+
+/**
  * Walks a token-paginated endpoint, calling `fetchPage(token, pageSize)` until the response's
  * `next` token is missing, until `limit` items have been collected, or until a loop guard trips
  * (an empty page, or a `next` token that repeats one already used). `limit` of `undefined` fetches
