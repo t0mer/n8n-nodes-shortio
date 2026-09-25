@@ -1,0 +1,18 @@
+{
+	"node": "@t0mer/n8n-nodes-shortio.shortIo",
+	"nodeVersion": "1.0",
+	"codexVersion": "1.0",
+	"categories": ["Marketing", "Utility"],
+	"resources": {
+		"credentialDocumentation": [
+			{
+				"url": "https://developers.short.io/docs/creating-an-api-key"
+			}
+		],
+		"primaryDocumentation": [
+			{
+				"url": "https://github.com/t0mer/n8n-nodes-shortio?tab=readme-ov-file"
+			}
+		]
+	}
+}

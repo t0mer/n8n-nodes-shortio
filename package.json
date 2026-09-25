@@ -47,7 +47,9 @@
     "credentials": [
       "dist/credentials/ShortIoApi.credentials.js"
     ],
-    "nodes": []
+    "nodes": [
+      "dist/nodes/ShortIo/ShortIo.node.js"
+    ]
   },
   "devDependencies": {
     "@n8n/node-cli": "*",
