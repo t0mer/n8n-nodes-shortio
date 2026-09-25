@@ -17,8 +17,10 @@ beforeEach(() => {
 });
 
 describe('chunk', () => {
-	it('returns no chunks for size 0', () => {
-		expect(chunk([1, 2, 3], 0)).toEqual([]);
+	it('throws for a non-positive or non-integer size', () => {
+		expect(() => chunk([1, 2, 3], 0)).toThrow('Chunk size must be a positive integer');
+		expect(() => chunk([1, 2, 3], -1)).toThrow('Chunk size must be a positive integer');
+		expect(() => chunk([1, 2, 3], 1.5)).toThrow('Chunk size must be a positive integer');
 	});
 
 	it('returns one chunk per item for size 1', () => {

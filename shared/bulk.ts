@@ -20,9 +20,11 @@ export interface ChunkPlan {
 	minIntervalMs: number;
 }
 
-/** Splits `items` into chunks of at most `size`. A non-positive `size` yields no chunks. */
+/** Splits `items` into chunks of at most `size`. Throws when `size` is not a positive integer. */
 export function chunk<T>(items: T[], size: number): T[][] {
-	if (size <= 0) return [];
+	if (!Number.isInteger(size) || size <= 0) {
+		throw new Error('Chunk size must be a positive integer');
+	}
 
 	const chunks: T[][] = [];
 	for (let i = 0; i < items.length; i += size) {
