@@ -192,7 +192,7 @@ async function getLinkClicks(this: IExecuteFunctions, i: number): Promise<INodeE
 	const response = await statsRequest.call(this, {
 		...req,
 		path: `/domain/${domainId}/link_clicks`,
-		resource: 'domain',
+		resource: 'link',
 		itemIndex: i,
 	});
 	return this.helpers.returnJsonArray(unwrapOrSuccess(response));

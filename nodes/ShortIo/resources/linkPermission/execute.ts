@@ -1,5 +1,6 @@
 import type { IDataObject, IExecuteFunctions, INodeExecutionData } from 'n8n-workflow';
 
+import { unwrapOrSuccess } from '../../../../shared/fields';
 import { resolveDomainId, resolveLinkId, resolvePositiveInt } from '../../../../shared/locators';
 import { shortIoRequest } from '../../../../shared/transport';
 import type { OperationEntry } from '../../../../shared/types';
@@ -27,7 +28,7 @@ async function add(this: IExecuteFunctions, i: number): Promise<INodeExecutionDa
 	const permission = (await shortIoRequest.call(this, {
 		method: 'POST',
 		path: `/links/permissions/${domainId}/${id}/${userId}`,
-		resource: 'link',
+		resource: 'link or user',
 		itemIndex: i,
 	})) as IDataObject;
 
@@ -45,19 +46,11 @@ async function del(this: IExecuteFunctions, i: number): Promise<INodeExecutionDa
 	const response = await shortIoRequest.call(this, {
 		method: 'DELETE',
 		path: `/links/permissions/${domainId}/${id}/${userId}`,
-		resource: 'link',
+		resource: 'link or user',
 		itemIndex: i,
 	});
 
-	const result: IDataObject =
-		response !== null &&
-		typeof response === 'object' &&
-		!Array.isArray(response) &&
-		Object.keys(response as object).length > 0
-			? (response as IDataObject)
-			: { success: true };
-
-	return this.helpers.returnJsonArray(result);
+	return this.helpers.returnJsonArray(unwrapOrSuccess(response));
 }
 
 async function getMany(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {

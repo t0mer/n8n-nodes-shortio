@@ -43,7 +43,7 @@ export function linkAdditionalFields(forUpdate: boolean): INodeProperties[] {
 			name: 'archived',
 			type: 'boolean',
 			default: false,
-			description: 'Whether to create the link already archived',
+			description: 'Whether the link is archived',
 		},
 		{
 			displayName: 'Clicks Limit',

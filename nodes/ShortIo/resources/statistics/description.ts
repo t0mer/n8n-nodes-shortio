@@ -261,14 +261,16 @@ export const statisticsDescription: INodeProperties[] = [
 				name: 'afterDate',
 				type: 'dateTime',
 				default: '',
-				description: 'Only return clicks after this date and time (pagination cursor)',
+				description:
+					'Only return clicks after this date and time (pagination cursor). Ignored when Period is All Time.',
 			},
 			{
 				displayName: 'Before Date',
 				name: 'beforeDate',
 				type: 'dateTime',
 				default: '',
-				description: 'Only return clicks before this date and time (pagination cursor)',
+				description:
+					'Only return clicks before this date and time (pagination cursor). Ignored when Period is All Time.',
 			},
 		],
 	},

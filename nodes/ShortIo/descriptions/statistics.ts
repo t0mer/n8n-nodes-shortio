@@ -94,7 +94,8 @@ const FILTER_COLUMNS: INodeProperties[] = [
 		name: 'human',
 		type: 'boolean',
 		default: true,
-		description: 'Whether to match only clicks made by humans (not bots)',
+		description:
+			'Whether the click was made by a human (in Include: only humans; in Exclude: remove humans)',
 	},
 	csvField('Methods', 'methods', 'HTTP methods, e.g. GET, HEAD'),
 	csvField('Paths', 'paths', 'Link paths, e.g. /abc123'),

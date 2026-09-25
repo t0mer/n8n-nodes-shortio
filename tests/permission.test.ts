@@ -81,6 +81,19 @@ describe('link permission add', () => {
 		await expect(run(linkPermissionHandlers.add, exec, 0)).rejects.toThrow(NodeOperationError);
 		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
 	});
+
+	it("names both the link and the user on a 404, since either could be the missing one", async () => {
+		const exec = fakeExec(
+			{
+				domain: { __rl: true, mode: 'id', value: '123' },
+				link: { __rl: true, mode: 'id', value: 'lnk_abc_d' },
+				userId: 42,
+			},
+			[{ statusCode: 404, body: { error: 'Not found' } }],
+		);
+
+		await expect(run(linkPermissionHandlers.add, exec, 0)).rejects.toThrow(/link or user was not found/i);
+	});
 });
 
 describe('link permission delete', () => {
@@ -131,6 +144,19 @@ describe('link permission delete', () => {
 
 		await expect(run(linkPermissionHandlers.delete, exec, 0)).rejects.toThrow(NodeOperationError);
 		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
+
+	it("names both the link and the user on a 404, since either could be the missing one", async () => {
+		const exec = fakeExec(
+			{
+				domain: { __rl: true, mode: 'id', value: '123' },
+				link: { __rl: true, mode: 'id', value: 'lnk_abc_d' },
+				userId: 42,
+			},
+			[{ statusCode: 404, body: { error: 'Not found' } }],
+		);
+
+		await expect(run(linkPermissionHandlers.delete, exec, 0)).rejects.toThrow(/link or user was not found/i);
 	});
 });
 

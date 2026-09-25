@@ -501,6 +501,14 @@ describe('get link clicks', () => {
 		expect(calls(exec)).toHaveLength(0);
 	});
 
+	it('names the link, not the domain, on a 404', async () => {
+		const exec = fakeExec(
+			{ domain: DOMAIN, identifyBy: 'id', linkIds: 'lnk_a1' },
+			[{ statusCode: 404, body: { error: 'Not found' } }],
+		);
+		await expect(run('getLinkClicks', exec)).rejects.toThrow(/link was not found/i);
+	});
+
 	it('normalizes a full short URL and a leading-slash path to bare paths, with required Created At', async () => {
 		const exec = fakeExec(
 			{
