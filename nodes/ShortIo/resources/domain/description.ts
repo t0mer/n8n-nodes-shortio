@@ -27,15 +27,19 @@ const ROBOTS_OPTIONS = [
 	{ name: 'No Index', value: 'noindex' },
 ];
 
+// Identical in `POST /domains` (Create) and `POST /domains/settings/{domainId}` (Update Settings);
+// shared so the two collections can't drift.
+const HIDE_REFERER_FIELD: INodeProperties = {
+	displayName: 'Hide Referer',
+	name: 'hideReferer',
+	type: 'boolean',
+	default: false,
+	description: 'Whether to hide the referrer from the destination site for links on this domain',
+};
+
 // `POST /domains` body (domains digest §3), sorted alphabetically by display name.
 const createAdditionalFields: INodeProperties[] = [
-	{
-		displayName: 'Hide Referer',
-		name: 'hideReferer',
-		type: 'boolean',
-		default: false,
-		description: 'Whether to hide the referrer from the destination site for links on this domain',
-	},
+	HIDE_REFERER_FIELD,
 	{
 		displayName: 'Link Type',
 		name: 'linkType',
@@ -44,6 +48,20 @@ const createAdditionalFields: INodeProperties[] = [
 		default: 'random',
 		description: 'The path-generation algorithm used for new links on this domain',
 	},
+];
+
+// The 7 nullable Update Settings fields (domains digest §4), exposed as an explicit "clear this
+// field" multiOptions so the API's null/"" clearing semantics are reachable without ambiguity
+// (an empty Update Fields entry means "leave unchanged", never "clear" — see fix round 1).
+// Display names match their `updateFields` counterparts exactly; sorted alphabetically.
+const CLEAR_FIELDS_OPTIONS = [
+	{ name: 'AdRoll Integration', value: 'integrationAdroll' },
+	{ name: 'Facebook Integration', value: 'integrationFB' },
+	{ name: 'Google Analytics Integration', value: 'integrationGA' },
+	{ name: 'Google Tag Manager Integration', value: 'integrationGTM' },
+	{ name: 'Not Found Redirect', value: 'redirect404' },
+	{ name: 'Segment Key', value: 'segmentKey' },
+	{ name: 'Webhook URL', value: 'webhookURL' },
 ];
 
 // `POST /domains/settings/{domainId}` body (domains digest §4), the 16 user-facing fields after
@@ -101,13 +119,7 @@ const updateFields: INodeProperties[] = [
 		description:
 			'Google Tag Manager or GA4 ID for all links on this domain, matching G-... or GTM-.... Leave empty to leave it unchanged.',
 	},
-	{
-		displayName: 'Hide Referer',
-		name: 'hideReferer',
-		type: 'boolean',
-		default: false,
-		description: 'Whether to hide the referrer from the destination site for links on this domain',
-	},
+	HIDE_REFERER_FIELD,
 	{
 		displayName: 'Hide Visitor IP',
 		name: 'hideVisitorIp',
@@ -139,12 +151,12 @@ const updateFields: INodeProperties[] = [
 		description: 'The path-generation algorithm used for new links on this domain',
 	},
 	{
-		displayName: 'Redirect 404 URL',
+		displayName: 'Not Found Redirect',
 		name: 'redirect404',
 		type: 'string',
 		default: '',
 		description:
-			'URL to redirect visitors to for a non-existent short link on this domain. Leave empty to leave it unchanged.',
+			'URL to redirect visitors to for a non-existent short link on this domain. Leave empty to leave it unchanged, or select this field in Clear Fields to remove it.',
 	},
 	{
 		displayName: 'Robots',
@@ -282,5 +294,15 @@ export const domainDescription: INodeProperties[] = [
 		default: {},
 		displayOptions: { show: { ...show, operation: ['updateSettings'] } },
 		options: updateFields,
+	},
+	{
+		displayName: 'Clear Fields',
+		name: 'clearFields',
+		type: 'multiOptions',
+		default: [],
+		description:
+			'Fields to explicitly clear on the domain (sent as null, or as an empty string for Not Found Redirect) instead of leaving them unchanged. A field selected here must not also be set in Update Fields.',
+		displayOptions: { show: { ...show, operation: ['updateSettings'] } },
+		options: CLEAR_FIELDS_OPTIONS,
 	},
 ];

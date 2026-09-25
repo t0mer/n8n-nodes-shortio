@@ -37,20 +37,54 @@ interface DomainUpdateFields {
 	webhookURL?: string;
 }
 
+/** The 7 nullable Update Settings fields exposable through the `clearFields` multiOptions parameter. */
+type ClearableField =
+	| 'integrationAdroll'
+	| 'integrationFB'
+	| 'integrationGA'
+	| 'integrationGTM'
+	| 'redirect404'
+	| 'segmentKey'
+	| 'webhookURL';
+
 /** Matches the domains digest's documented `integrationGTM` pattern for `POST /domains/settings/{domainId}`. */
 const GTM_ID_RE = /^G(TM)?-\w+$/;
 
 /**
- * Normalizes a user-supplied hostname: trims, strips a leading scheme (e.g. `https://`) and a
- * trailing slash if the user pasted a full URL, then validates it parses as a bare hostname with
- * no path, query string, fragment, or embedded credentials. Reuses `URL`'s own punycode encoding
- * (same technique as `parseShortUrl` in shared/locators.ts) so a unicode hostname (the digest's
- * example is `😀.link`) comes out in its ASCII form.
+ * True if `value` contains a C0 control character (U+0000-U+001F) or DEL (U+007F). The WHATWG
+ * `URL` parser silently *strips* tabs, CR and LF from a URL string before parsing it (e.g.
+ * `https://evil\t.com` parses as `https://evil.com`), so validating post-parse can't catch a
+ * hostname smuggling one of these — they must be rejected up front, before the scheme is stripped
+ * or `URL` ever sees the value. Written as a character-code scan rather than a `\x00-\x1f` regex
+ * literal, since ESLint's `no-control-regex` rejects control characters in regex source.
+ */
+function hasControlChar(value: string): boolean {
+	for (let idx = 0; idx < value.length; idx++) {
+		const code = value.charCodeAt(idx);
+		if (code <= 0x1f || code === 0x7f) return true;
+	}
+	return false;
+}
+
+/**
+ * Normalizes a user-supplied hostname: trims, rejects embedded control characters, strips a
+ * leading scheme (e.g. `https://`) and a trailing slash if the user pasted a full URL, then
+ * validates it parses as a bare hostname with no path, query string, fragment, or embedded
+ * credentials. Reuses `URL`'s own punycode encoding (same technique as `parseShortUrl` in
+ * shared/locators.ts) so a unicode hostname (the digest's example is `😀.link`) comes out in its
+ * ASCII form.
  */
 function normalizeHostname(this: IExecuteFunctions, value: string, i: number): string {
 	const trimmed = value.trim();
 	if (!trimmed) {
 		throw new NodeOperationError(this.getNode(), 'Hostname must not be empty', { itemIndex: i });
+	}
+	if (hasControlChar(trimmed)) {
+		throw new NodeOperationError(
+			this.getNode(),
+			`"${value}" contains a control character, which is not allowed in a hostname`,
+			{ itemIndex: i },
+		);
 	}
 	const withoutScheme = trimmed.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '');
 	const bare = withoutScheme.replace(/\/+$/, '');
@@ -106,11 +140,21 @@ async function get(this: IExecuteFunctions, i: number): Promise<INodeExecutionDa
 async function updateSettings(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
 	const domainParam = this.getNodeParameter('domain', i);
 	const fields = this.getNodeParameter('updateFields', i, {}) as DomainUpdateFields;
+	const clearFields = this.getNodeParameter('clearFields', i, []) as ClearableField[];
 
-	if (Object.keys(fields).length === 0) {
-		throw new NodeOperationError(this.getNode(), 'Add at least one field to update', {
+	if (Object.keys(fields).length === 0 && clearFields.length === 0) {
+		throw new NodeOperationError(this.getNode(), 'Add at least one field to update or clear', {
 			itemIndex: i,
 		});
+	}
+	for (const field of clearFields) {
+		if (Object.prototype.hasOwnProperty.call(fields, field)) {
+			throw new NodeOperationError(
+				this.getNode(),
+				`"${field}" is set in Update Fields and also selected in Clear Fields; choose one`,
+				{ itemIndex: i },
+			);
+		}
 	}
 	if (fields.integrationGTM && !GTM_ID_RE.test(fields.integrationGTM)) {
 		throw new NodeOperationError(
@@ -121,7 +165,12 @@ async function updateSettings(this: IExecuteFunctions, i: number): Promise<INode
 	}
 
 	const domainId = resolveDomainId(domainParam);
-	const body = compact({ ...fields });
+	const body: IDataObject = compact({ ...fields });
+	// Explicit clears bypass `compact()` (which would otherwise drop `null`/`''`): `redirect404`
+	// clears via the documented literal `""`, every other nullable field clears via `null`.
+	for (const field of clearFields) {
+		body[field] = field === 'redirect404' ? '' : null;
+	}
 
 	const response = await shortIoRequest.call(this, {
 		method: 'POST',

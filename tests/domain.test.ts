@@ -74,6 +74,17 @@ describe('domain create', () => {
 		await expect(run(domainHandlers.create, exec, 0)).rejects.toThrow(NodeOperationError);
 		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
 	});
+
+	it.each([
+		['a tab', 'evil\t.com'],
+		['a newline', 'evil\n.com'],
+		['a carriage return', 'evil\r.com'],
+	])('rejects a hostname containing %s and makes no HTTP call', async (_label, hostname) => {
+		const exec = fakeExec({ hostname }, []);
+
+		await expect(run(domainHandlers.create, exec, 0)).rejects.toThrow(NodeOperationError);
+		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
 });
 
 describe('domain get', () => {
@@ -161,6 +172,64 @@ describe('domain update settings', () => {
 
 		const [, opts] = calls(exec)[0] as [string, { body: { integrationGTM: string } }];
 		expect(opts.body.integrationGTM).toBe('GTM-ABC123');
+	});
+
+	it('sends null for a cleared field, and "" for a cleared Not Found Redirect', async () => {
+		const exec = fakeExec(
+			{
+				domain: { __rl: true, mode: 'id', value: '123' },
+				updateFields: {},
+				clearFields: ['segmentKey', 'redirect404'],
+			},
+			[{ statusCode: 200, body: {} }],
+		);
+
+		await run(domainHandlers.updateSettings, exec, 0);
+
+		const [, opts] = calls(exec)[0] as [string, { body: unknown }];
+		expect(opts.body).toEqual({ segmentKey: null, redirect404: '' });
+	});
+
+	it('treats clearFields alone (no updateFields) as a valid update', async () => {
+		const exec = fakeExec(
+			{
+				domain: { __rl: true, mode: 'id', value: '123' },
+				clearFields: ['webhookURL'],
+			},
+			[{ statusCode: 200, body: {} }],
+		);
+
+		const [item] = await run(domainHandlers.updateSettings, exec, 0);
+
+		const [, opts] = calls(exec)[0] as [string, { body: unknown }];
+		expect(opts.body).toEqual({ webhookURL: null });
+		expect(item.json).toEqual({ success: true, domainId: 123 });
+	});
+
+	it('throws before any HTTP call when both updateFields and clearFields are empty', async () => {
+		const exec = fakeExec(
+			{ domain: { __rl: true, mode: 'id', value: '123' }, updateFields: {}, clearFields: [] },
+			[],
+		);
+
+		await expect(run(domainHandlers.updateSettings, exec, 0)).rejects.toThrow(NodeOperationError);
+		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
+	});
+
+	it('throws when a field is both set in updateFields and selected in clearFields', async () => {
+		const exec = fakeExec(
+			{
+				domain: { __rl: true, mode: 'id', value: '123' },
+				updateFields: { segmentKey: 'abc' },
+				clearFields: ['segmentKey'],
+			},
+			[],
+		);
+
+		await expect(run(domainHandlers.updateSettings, exec, 0)).rejects.toThrow(
+			/segmentKey.*Update Fields.*Clear Fields/,
+		);
+		expect(exec.helpers.httpRequestWithAuthentication).not.toHaveBeenCalled();
 	});
 });
 
