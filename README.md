@@ -10,9 +10,8 @@ clicks.
 > This package is unofficial. It is not affiliated with, endorsed by, or supported by Short.io.
 > "Short.io" is used only to describe what the node connects to.
 
-> **Status: under active development.** Operations are being added incrementally; the first npm
-> release has not been published yet. This README describes the full set of planned operations
-> and will be finalized once they have all landed.
+> **Status:** All planned operations are implemented. The first npm release has not been published
+> yet — see [Installation](#installation).
 
 - [Installation](#installation)
 - [Credentials](#credentials)
@@ -74,11 +73,11 @@ scoped to one domain won't list or resolve others. The credential test calls
 | Archive | |
 | Archive Many | Up to 150 links per call |
 | Create | Domain and Original URL required; every other field is optional |
-| Create Many | Up to 1000 links per call, paced at 5 calls / 10 s |
+| Create Many | Up to 1000 links per call, paced at 5 calls / 10 s. Requests are grouped by domain and folder first, since a single call can only carry one domain and one folder. If a call fails without Continue On Fail, the error reports how many links were already created. |
 | Delete | |
 | Delete Many | Up to 150 links per call, paced at 1 call / s |
-| Generate QR Code | Binary image output (the node downloads the QR image Short.io generates; format follows the Type option) |
-| Generate QR Codes (Many) | Up to 150 links per call; binary output, one ZIP per call |
+| Generate QR Code | Binary image output. The node downloads the QR image Short.io generates (format follows the Type option) only from Short.io's QR host (`shortiougc.com`); the API key is never sent to that download |
+| Generate QR Codes (Many) | Up to 150 links per call; binary output, one ZIP per call. Same `shortiougc.com`-only, credential-free download as Generate QR Code |
 | Get | |
 | Get by Original URL | Returns every link created for that URL |
 | Get by Path | Resolves a full short link (domain + path) to its link record |
@@ -137,22 +136,22 @@ scoped to one domain won't list or resolve others. The credential test calls
 | Create | |
 | Get | |
 | Get Many | |
-| Update Settings | Exposes every domain setting field as optional |
+| Update Settings | Exposes every domain setting field as optional in Update Fields. A separate **Clear Fields** option explicitly nulls out the 7 nullable settings (AdRoll/Facebook/Google Analytics/Google Tag Manager Integration, Not Found Redirect, Segment Key, Webhook URL) instead of leaving them unchanged; the 404-redirect field is labeled **Not Found Redirect** |
 
-### Statistics
+### Statistic
 
 | Operation | Notes |
 |---|---|
 | Clear Domain Statistics | Irreversible; requires the **Confirm** parameter to be turned on, or the node refuses to run it |
 | Get Domain Statistics | |
 | Get Domain Statistics by Interval | |
-| Get Domain Top Values | |
-| Get Domain Top Values by Interval | |
-| Get Link Clicks | Identify links by ID or by path |
+| Get Domain Top Values | **Column** and **Limit** (default 50) — see [Statistics notes](#statistics-notes) for the column list |
+| Get Domain Top Values by Interval | **Column**, **Interval** and **Limit** (default 50) |
+| Get Link Clicks | Identify links by ID or by path; takes an optional date range only (no Period, Timezone or Filters) |
 | Get Link Statistics | |
 | Get Link Statistics by Interval | |
-| Get Link Top Values | |
-| Get Raw Clicks | Raw click log for a domain (most recent clicks; Short.io does not document the sort order) |
+| Get Link Top Values | **Column** and **Limit** (default 50) |
+| Get Raw Clicks | Raw click log for a domain (most recent clicks; Short.io does not document the sort order); **Limit** defaults to 50 |
 
 See [Statistics notes](#statistics-notes) for the shared Period, Timezone and Filters parameters.
 
@@ -179,11 +178,15 @@ sample without changing the stored state.
 size, matching the sibling bulk endpoints.
 
 All bulk operations take every input item and split it into chunks of the sizes above.
+**Create Many** additionally groups items by domain hostname and folder before chunking, since a
+single `POST /links/bulk` call can only carry one domain and one folder — a batch that mixes
+folders or domains makes more calls than the chunk size alone implies.
 **Create Many is not transactional**: a chunk can partly succeed. A failed link comes back as an
 error item mapped to its original input index with continue-on-fail turned on; without
-continue-on-fail, the node throws and lists the failing item indexes. **Generate QR Codes (Many)**
-returns one ZIP file per chunk (not per link), so its output is one binary item per chunk of up
-to 150 links.
+continue-on-fail, the node throws and lists the failing item indexes, and for Create Many the
+error message also reports how many links were already created before the failure. **Generate QR
+Codes (Many)** returns one ZIP file per chunk (not per link), so its output is one binary item per
+chunk of up to 150 links.
 
 ## Rate limits
 
@@ -208,6 +211,11 @@ up to 3 attempts in total, honouring the `Retry-After` header when Short.io send
 - **Filters** (where the operation supports them) are an include/exclude pair over columns such
   as country, browser, browser version, social network, HTTP status, path, protocol, method,
   referrer host, and UTM source/medium/campaign.
+- **Column** (the Top Values operations) is one of 18 values: A/B Path, Browser, Browser Version,
+  City, Country, Goal Completed, Human, Method, OS, Path, Path (404), Protocol, Referrer Host,
+  Social, Status, UTM Campaign, UTM Medium, UTM Source.
+- **Limit** on the Top Values operations and Get Raw Clicks defaults to 50, with no documented
+  maximum.
 
 ## Excluded
 
