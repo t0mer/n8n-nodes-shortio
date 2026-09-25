@@ -38,6 +38,12 @@ export const linkDescription: INodeProperties[] = [
 		displayOptions: { show },
 		options: [
 			{
+				name: 'Archive',
+				value: 'archive',
+				description: 'Archive a link',
+				action: 'Archive a link',
+			},
+			{
 				name: 'Create',
 				value: 'create',
 				description: 'Create a link',
@@ -74,6 +80,12 @@ export const linkDescription: INodeProperties[] = [
 				action: 'Get many links',
 			},
 			{
+				name: 'Unarchive',
+				value: 'unarchive',
+				description: 'Unarchive a link',
+				action: 'Unarchive a link',
+			},
+			{
 				name: 'Update',
 				value: 'update',
 				description: 'Update a link',
@@ -101,7 +113,7 @@ export const linkDescription: INodeProperties[] = [
 		displayOptions: { show: { ...show, operation: ['create'] } },
 		options: linkAdditionalFields(false),
 	},
-	linkLocator({ ...show, operation: ['delete', 'get', 'update'] }),
+	linkLocator({ ...show, operation: ['archive', 'delete', 'get', 'unarchive', 'update'] }),
 	{
 		displayName: 'Update Fields',
 		name: 'updateFields',

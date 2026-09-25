@@ -16,6 +16,36 @@ interface LinkGetManyFilters {
 	idString?: string;
 }
 
+async function archive(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
+	const linkParam = this.getNodeParameter('link', i);
+	const id = await resolveLinkId.call(this, linkParam, i);
+
+	await shortIoRequest.call(this, {
+		method: 'POST',
+		path: '/links/archive',
+		body: { link_id: id },
+		resource: 'link',
+		itemIndex: i,
+	});
+
+	return this.helpers.returnJsonArray({ success: true, idString: id });
+}
+
+async function unarchive(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
+	const linkParam = this.getNodeParameter('link', i);
+	const id = await resolveLinkId.call(this, linkParam, i);
+
+	await shortIoRequest.call(this, {
+		method: 'POST',
+		path: '/links/unarchive',
+		body: { link_id: id },
+		resource: 'link',
+		itemIndex: i,
+	});
+
+	return this.helpers.returnJsonArray({ success: true, idString: id });
+}
+
 async function create(
 	this: IExecuteFunctions,
 	i: number,
@@ -179,11 +209,13 @@ async function del(this: IExecuteFunctions, i: number): Promise<INodeExecutionDa
 }
 
 export const linkHandlers: Record<string, OperationEntry> = {
+	archive: { kind: 'item', run: archive },
 	create: { kind: 'item', run: create },
 	delete: { kind: 'item', run: del },
 	get: { kind: 'item', run: get },
 	getByOriginalUrl: { kind: 'item', run: getByOriginalUrl },
 	getByPath: { kind: 'item', run: getByPath },
 	getMany: { kind: 'item', run: getMany },
+	unarchive: { kind: 'item', run: unarchive },
 	update: { kind: 'item', run: update },
 };

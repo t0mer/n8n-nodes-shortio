@@ -375,3 +375,39 @@ describe('link delete', () => {
 		expect(item.json).toEqual({ success: true, idString: 'lnk_abc_d' });
 	});
 });
+
+describe('link archive', () => {
+	it('sends POST /links/archive with {link_id} and returns {success:true, idString}', async () => {
+		const exec = fakeExec({ link: { __rl: true, mode: 'id', value: 'lnk_abc_d' } }, [
+			{ statusCode: 200, body: { success: true } },
+		]);
+
+		const [item] = await run(linkHandlers.archive, exec, 0, newCtx());
+
+		const [, opts] = calls(exec)[0] as [string, { method: string; url: string; body: unknown }];
+		expect(opts).toMatchObject({
+			method: 'POST',
+			url: 'https://api.short.io/links/archive',
+			body: { link_id: 'lnk_abc_d' },
+		});
+		expect(item.json).toEqual({ success: true, idString: 'lnk_abc_d' });
+	});
+});
+
+describe('link unarchive', () => {
+	it('sends POST /links/unarchive with {link_id} and returns {success:true, idString}', async () => {
+		const exec = fakeExec({ link: { __rl: true, mode: 'id', value: 'lnk_abc_d' } }, [
+			{ statusCode: 200, body: { success: true } },
+		]);
+
+		const [item] = await run(linkHandlers.unarchive, exec, 0, newCtx());
+
+		const [, opts] = calls(exec)[0] as [string, { method: string; url: string; body: unknown }];
+		expect(opts).toMatchObject({
+			method: 'POST',
+			url: 'https://api.short.io/links/unarchive',
+			body: { link_id: 'lnk_abc_d' },
+		});
+		expect(item.json).toEqual({ success: true, idString: 'lnk_abc_d' });
+	});
+});
