@@ -207,7 +207,7 @@ async function getRawClicks(this: IExecuteFunctions, i: number): Promise<INodeEx
 	const { period, tz, filters } = commonParams.call(this, i);
 	const limit = this.getNodeParameter('limit', i, 50) as number;
 	const options = this.getNodeParameter('options', i, {}) as IDataObject;
-	// Pagination cursors keep their full date-time: raw click `dt` values have second precision.
+	// Pagination cursors keep their full date-time: raw click `dt` values have millisecond precision.
 	const beforeDate = toIsoDate(options.beforeDate);
 	const afterDate = toIsoDate(options.afterDate);
 	const domainId = resolveDomainId(this.getNodeParameter('domain', i));

@@ -201,12 +201,20 @@ export function filtersProperty(show: IDisplayOptions['show']): INodeProperties 
 /** Matches a trailing UTC `Z` or a `±hh:mm`/`±hhmm` offset at the end of a date-time string. */
 const HAS_ZONE_RE = /(Z|[+-]\d{2}:?\d{2})$/;
 
-/** Loosely parses `YYYY-MM-DD[THH:mm[:ss]]` (a space is also accepted for the separator),
- * defaulting a missing time to midnight. `undefined` when the shape doesn't match at all. */
-function parseNaiveDateTime(
-	v: string,
-): { y: number; mo: number; d: number; h: number; mi: number; s: number } | undefined {
-	const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(v);
+/** Loosely parses `YYYY-MM-DD[THH:mm[:ss[.fraction]]]` (a space is also accepted for the
+ * separator), defaulting a missing time to midnight. `frac` is the fractional-seconds part
+ * including its leading `.` (e.g. `.123`), or `''` when absent — kept verbatim so it survives into
+ * the formatted output. `undefined` when the shape doesn't match at all. */
+function parseNaiveDateTime(v: string): {
+	y: number;
+	mo: number;
+	d: number;
+	h: number;
+	mi: number;
+	s: number;
+	frac: string;
+} | undefined {
+	const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(\.\d+)?)?)?$/.exec(v);
 	if (!m) return undefined;
 	return {
 		y: Number(m[1]),
@@ -215,29 +223,77 @@ function parseNaiveDateTime(
 		h: Number(m[4] ?? '0'),
 		mi: Number(m[5] ?? '0'),
 		s: Number(m[6] ?? '0'),
+		frac: m[7] ?? '',
 	};
 }
 
-/**
- * Resolves the UTC offset (`+hh:mm`/`-hh:mm`) an IANA zone has at a given instant. Luxon (the
- * usual tool for this) ships no TypeScript type declarations reachable from this project — despite
- * being a transitive dependency of `n8n-workflow`, `tsc` fails with "Cannot find module 'luxon' or
- * its corresponding type declarations" — so this uses `Intl.DateTimeFormat`'s `longOffset` zone
- * name instead, which every supported Node version provides. `atMs` only has to land within the
- * right side of a DST transition to resolve the correct offset, not be the exact final instant, so
- * using a first-pass UTC interpretation of the naive local time as `atMs` is accurate enough.
- */
-function tzOffsetAt(tz: string, atMs: number): string {
+/** A full day in milliseconds: comfortably more than any single DST transition's jump, so sampling
+ * an IANA zone's offset this far before and after a naive instant reliably lands outside the
+ * transition itself on each side (used by {@link resolveOffsetMinutes}). */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Resolves the UTC offset (in minutes east of UTC) an IANA zone has at a given real UTC instant
+ * (`atMs`), via `Intl.DateTimeFormat`'s `longOffset` zone name. Luxon (the usual tool for this) has
+ * no TypeScript type declarations reachable from this project — despite being a transitive
+ * dependency of `n8n-workflow`, `tsc` fails with "Cannot find module 'luxon' or its corresponding
+ * type declarations" — so this is the fallback, and every supported Node version provides it. */
+function tzOffsetMinutesAt(tz: string, atMs: number): number {
 	const parts = new Intl.DateTimeFormat('en-US', {
 		timeZone: tz,
 		timeZoneName: 'longOffset',
 	}).formatToParts(new Date(atMs));
 	const raw = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT';
-	return /^GMT([+-]\d{2}:\d{2})?$/.exec(raw)?.[1] ?? '+00:00';
+	const m = /^GMT([+-])(\d{2}):(\d{2})$/.exec(raw);
+	if (!m) return 0;
+	return (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3]));
+}
+
+/**
+ * Resolves the UTC offset (in minutes) an IANA zone has for a *naive local wall-clock* time
+ * (`naiveMs`: the date/time fields reinterpreted as if they were themselves a UTC instant — what
+ * `Date.UTC(y, mo, d, h, mi, s)` on the parsed fields gives).
+ *
+ * A single naive-as-UTC lookup (`tzOffsetMinutesAt(tz, naiveMs)`) picks the wrong offset for the
+ * entire window before a spring-forward gap: e.g. Asia/Jerusalem's `2026-03-27T01:30` resolves to
+ * `+03:00` that way, but the correct answer is `+02:00` (the real instant is `2026-03-26T23:30Z`,
+ * still standard time). So this samples the zone's offset a full day before and after `naiveMs`
+ * first. If they're equal, there's no nearby transition and that's the answer. Otherwise, each
+ * sampled offset gives a candidate real UTC instant (`naiveMs` shifted back by that offset); a
+ * candidate is valid only if it round-trips — querying the zone's offset *at* that candidate
+ * instant gives back the same offset used to compute it:
+ * - **Both** candidates round-trip: the local time is ambiguous (a repeated hour during fall-back).
+ *   Resolves to the **earlier** of the two real instants — the first occurrence — chosen
+ *   consistently regardless of the zone's offset sign.
+ * - **Neither** round-trips: the local time doesn't exist (a skipped hour during a spring-forward
+ *   gap). Resolves to the **later** (post-transition) offset, the "shift forward" convention most
+ *   libraries use.
+ * - **Exactly one** round-trips: that's the unambiguous answer.
+ */
+function resolveOffsetMinutes(tz: string, naiveMs: number): number {
+	const before = tzOffsetMinutesAt(tz, naiveMs - DAY_MS);
+	const after = tzOffsetMinutesAt(tz, naiveMs + DAY_MS);
+	if (before === after) return before;
+
+	const candidateBefore = naiveMs - before * 60_000;
+	const validBefore = tzOffsetMinutesAt(tz, candidateBefore) === before;
+	const candidateAfter = naiveMs - after * 60_000;
+	const validAfter = tzOffsetMinutesAt(tz, candidateAfter) === after;
+
+	if (validBefore && validAfter) return candidateBefore <= candidateAfter ? before : after;
+	if (validBefore) return before;
+	if (validAfter) return after;
+	return after; // Gap: neither local time exists; shift forward to the post-transition offset.
 }
 
 function pad(n: number, len = 2): string {
 	return String(n).padStart(len, '0');
+}
+
+/** Formats an offset in minutes east of UTC as `±hh:mm`. */
+function formatOffset(minutes: number): string {
+	const sign = minutes < 0 ? '-' : '+';
+	const abs = Math.abs(minutes);
+	return `${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
 }
 
 /**
@@ -249,10 +305,11 @@ function pad(n: number, len = 2): string {
  * string (no trailing `Z`/offset — the shape n8n's dateTime picker emits for a value typed without
  * a timezone) is interpreted in `tz`, not in whatever zone the n8n host process happens to run in
  * (which is what `toIsoDate`'s plain `new Date(...)` conversion would otherwise silently apply),
- * and sent with that zone's own offset attached. A string that already carries an explicit zone is
- * sent unchanged, preserving its given offset as-is. A `Date`, an epoch number, or a Luxon-like
- * value exposing `.toISO()` all go through `toIsoDate` as before. `''`/`null`/`undefined` become
- * `undefined`, same as `toIsoDate`.
+ * and sent with that zone's own offset attached (resolved via {@link resolveOffsetMinutes}, correct
+ * across DST transitions). A string that already carries an explicit zone is sent unchanged,
+ * preserving its given offset as-is. A `Date`, an epoch number, or a Luxon-like value exposing
+ * `.toISO()` all go through `toIsoDate` as before. `''`/`null`/`undefined` become `undefined`, same
+ * as `toIsoDate`.
  */
 export function toStatsDateTime(v: unknown, tz: string): string | undefined {
 	if (typeof v === 'string') {
@@ -270,9 +327,9 @@ export function toStatsDateTime(v: unknown, tz: string): string | undefined {
 		if (!parts || Number.isNaN(Date.parse(trimmed))) {
 			throw new Error(`Invalid date: ${v}`);
 		}
-		const utcGuess = Date.UTC(parts.y, parts.mo - 1, parts.d, parts.h, parts.mi, parts.s);
-		const offset = tzOffsetAt(tz, utcGuess);
-		return `${pad(parts.y, 4)}-${pad(parts.mo)}-${pad(parts.d)}T${pad(parts.h)}:${pad(parts.mi)}:${pad(parts.s)}${offset}`;
+		const naiveMs = Date.UTC(parts.y, parts.mo - 1, parts.d, parts.h, parts.mi, parts.s);
+		const offset = formatOffset(resolveOffsetMinutes(tz, naiveMs));
+		return `${pad(parts.y, 4)}-${pad(parts.mo)}-${pad(parts.d)}T${pad(parts.h)}:${pad(parts.mi)}:${pad(parts.s)}${parts.frac}${offset}`;
 	}
 	return toIsoDate(v);
 }

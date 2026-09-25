@@ -99,6 +99,76 @@ describe('toStatsDateTime', () => {
 		expect(toStatsDateTime(undefined, 'UTC')).toBeUndefined();
 		expect(toStatsDateTime(null, 'UTC')).toBeUndefined();
 	});
+
+	it('keeps fractional seconds in a zone-less string', () => {
+		expect(toStatsDateTime('2026-09-25T23:59:00.123', 'UTC')).toBe('2026-09-25T23:59:00.123+00:00');
+	});
+
+	describe('DST transitions (Asia/Jerusalem: 2026-03-27 spring forward, 2026-10-25 fall back)', () => {
+		it('resolves the correct pre-transition offset just before a spring-forward gap', () => {
+			// A single naive-as-UTC offset lookup gets this wrong (picks +03:00); the real instant
+			// is 2026-03-26T23:30Z, still standard time.
+			expect(toStatsDateTime('2026-03-27T01:30:00', 'Asia/Jerusalem')).toBe(
+				'2026-03-27T01:30:00+02:00',
+			);
+		});
+
+		it('shifts forward to the later offset for a local time inside the spring-forward gap', () => {
+			// 2026-03-27T02:00-03:00 local doesn't exist in Asia/Jerusalem; documented choice is
+			// the post-transition (later) offset.
+			expect(toStatsDateTime('2026-03-27T02:30:00', 'Asia/Jerusalem')).toBe(
+				'2026-03-27T02:30:00+03:00',
+			);
+		});
+
+		it('resolves the correct post-transition offset just after the gap', () => {
+			expect(toStatsDateTime('2026-03-27T03:30:00', 'Asia/Jerusalem')).toBe(
+				'2026-03-27T03:30:00+03:00',
+			);
+		});
+
+		it('resolves to the earlier (first) occurrence for an ambiguous fall-back local time', () => {
+			// 2026-10-25T01:00-02:00 local occurs twice in Asia/Jerusalem: once at +03:00 (IDT,
+			// before the clock falls back) and once at +02:00 (IST, after). Documented choice is
+			// the earlier (first) occurrence.
+			expect(toStatsDateTime('2026-10-25T01:30:00', 'Asia/Jerusalem')).toBe(
+				'2026-10-25T01:30:00+03:00',
+			);
+		});
+
+		it('resolves +03:00 (IDT) for a plain summer date, well away from any transition', () => {
+			expect(toStatsDateTime('2026-09-25T12:00:00', 'Asia/Jerusalem')).toBe(
+				'2026-09-25T12:00:00+03:00',
+			);
+		});
+
+		it('resolves +02:00 (IST) for a plain winter date, well away from any transition', () => {
+			expect(toStatsDateTime('2026-01-15T12:00:00', 'Asia/Jerusalem')).toBe(
+				'2026-01-15T12:00:00+02:00',
+			);
+		});
+	});
+
+	describe('DST transitions (America/New_York, negative offset: 2026-03-08 spring forward)', () => {
+		it('resolves the correct pre-transition (standard time) offset', () => {
+			expect(toStatsDateTime('2026-03-08T01:30:00', 'America/New_York')).toBe(
+				'2026-03-08T01:30:00-05:00',
+			);
+		});
+
+		it('shifts forward to the later offset for a local time inside the gap', () => {
+			// 2026-03-08T02:00-03:00 local doesn't exist in America/New_York.
+			expect(toStatsDateTime('2026-03-08T02:30:00', 'America/New_York')).toBe(
+				'2026-03-08T02:30:00-04:00',
+			);
+		});
+
+		it('resolves the correct post-transition (daylight time) offset', () => {
+			expect(toStatsDateTime('2026-03-08T03:30:00', 'America/New_York')).toBe(
+				'2026-03-08T03:30:00-04:00',
+			);
+		});
+	});
 });
 
 describe('buildPeriod', () => {
