@@ -48,7 +48,8 @@
       "dist/credentials/ShortIoApi.credentials.js"
     ],
     "nodes": [
-      "dist/nodes/ShortIo/ShortIo.node.js"
+      "dist/nodes/ShortIo/ShortIo.node.js",
+      "dist/nodes/ShortIoTrigger/ShortIoTrigger.node.js"
     ]
   },
   "devDependencies": {
