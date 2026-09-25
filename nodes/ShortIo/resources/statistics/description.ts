@@ -1,6 +1,6 @@
 import type { INodeProperties } from 'n8n-workflow';
 
-import { domainLocator } from '../../descriptions/common';
+import { domainLocator, linkLocator } from '../../descriptions/common';
 import {
 	COLUMN_OPTIONS,
 	filtersProperty,
@@ -22,6 +22,8 @@ const DOMAIN_OPS = [
 	'getRawClicks',
 ];
 
+const LINK_OPS = ['getLinkStatistics', 'getLinkStatisticsByInterval', 'getLinkTopValues'];
+
 /** Operations that take period, timezone and include/exclude filters. */
 const PERIOD_OPS = [
 	'getDomainStatistics',
@@ -29,11 +31,14 @@ const PERIOD_OPS = [
 	'getDomainTopValues',
 	'getDomainTopValuesByInterval',
 	'getRawClicks',
+	...LINK_OPS,
 ];
 
-const TOP_OPS = ['getDomainTopValues', 'getDomainTopValuesByInterval'];
+const TOP_OPS = ['getDomainTopValues', 'getDomainTopValuesByInterval', 'getLinkTopValues'];
 const LIMIT_OPS = [...TOP_OPS, 'getRawClicks'];
-const PREFIX_OPS = ['getDomainTopValues'];
+const PREFIX_OPS = ['getDomainTopValues', 'getLinkTopValues'];
+const STATS_OPTION_OPS = ['getDomainStatistics', 'getLinkStatistics'];
+const BY_INTERVAL_OPS = ['getDomainStatisticsByInterval', 'getLinkStatisticsByInterval'];
 
 export const statisticsDescription: INodeProperties[] = [
 	{
@@ -80,6 +85,24 @@ export const statisticsDescription: INodeProperties[] = [
 				action: 'Get link clicks',
 			},
 			{
+				name: 'Get Link Statistics',
+				value: 'getLinkStatistics',
+				description: 'Get click statistics of a link',
+				action: 'Get link statistics',
+			},
+			{
+				name: 'Get Link Statistics by Interval',
+				value: 'getLinkStatisticsByInterval',
+				description: 'Get click counts of a link grouped by time interval',
+				action: 'Get link statistics by interval',
+			},
+			{
+				name: 'Get Link Top Values',
+				value: 'getLinkTopValues',
+				description: 'Get the top values of a column for a link, ordered by clicks',
+				action: 'Get link top values',
+			},
+			{
 				name: 'Get Raw Clicks',
 				value: 'getRawClicks',
 				description: 'Get the latest raw clicks of a domain',
@@ -89,6 +112,7 @@ export const statisticsDescription: INodeProperties[] = [
 		default: 'getDomainStatistics',
 	},
 	domainLocator(op(...DOMAIN_OPS)),
+	linkLocator(op(...LINK_OPS)),
 	{
 		displayName: 'Confirm',
 		name: 'confirm',
@@ -125,7 +149,7 @@ export const statisticsDescription: INodeProperties[] = [
 		options: INTERVAL_OPTIONS,
 		default: 'day',
 		description: 'The time interval to group clicks by',
-		displayOptions: { show: op('getDomainStatisticsByInterval') },
+		displayOptions: { show: op(...BY_INTERVAL_OPS) },
 	},
 	{
 		displayName: 'Limit',
@@ -232,7 +256,7 @@ export const statisticsDescription: INodeProperties[] = [
 		type: 'collection',
 		placeholder: 'Add Option',
 		default: {},
-		displayOptions: { show: op('getDomainStatistics') },
+		displayOptions: { show: op(...STATS_OPTION_OPS) },
 		options: [
 			{
 				displayName: 'Clicks Chart Interval',

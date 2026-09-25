@@ -2,7 +2,7 @@ import { NodeOperationError } from 'n8n-workflow';
 import type { IDataObject, IExecuteFunctions, INodeExecutionData } from 'n8n-workflow';
 
 import { compact, toIsoDate, unwrapOrSuccess } from '../../../../shared/fields';
-import { LINK_ID_REGEX, resolveDomainId } from '../../../../shared/locators';
+import { LINK_ID_REGEX, resolveDomainId, resolveLinkId } from '../../../../shared/locators';
 import { shortIoRequest, type ShortIoRequest } from '../../../../shared/transport';
 import type { OperationEntry } from '../../../../shared/types';
 import {
@@ -218,6 +218,66 @@ async function clearDomainStatistics(
 	return this.helpers.returnJsonArray({ success: true, domainId, ...unwrapOrSuccess(response) });
 }
 
+async function getLinkStatistics(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
+	const { period, tz, filters, hasFilters } = commonParams.call(this, i);
+	const options = this.getNodeParameter('options', i, {}) as {
+		clicksChartInterval?: string;
+		skipTops?: boolean;
+	};
+	const linkId = await resolveLinkId.call(this, this.getNodeParameter('link', i), i);
+
+	// Both GET (query) and POST (body) accept skipTops on link stats (statistics digest §2.11-2.12).
+	const fields = compact({
+		...period,
+		tz,
+		clicksChartInterval: options.clicksChartInterval,
+		skipTops: options.skipTops,
+	});
+	const response = await statsRequest.call(this, {
+		method: hasFilters ? 'POST' : 'GET',
+		path: `/link/${encodeURIComponent(linkId)}`,
+		...(hasFilters ? { body: { ...fields, ...filters } } : { qs: fields }),
+		resource: 'link',
+		itemIndex: i,
+	});
+	return toItems.call(this, response);
+}
+
+async function getLinkStatisticsByInterval(
+	this: IExecuteFunctions,
+	i: number,
+): Promise<INodeExecutionData[]> {
+	const { period, tz, filters } = commonParams.call(this, i);
+	const clicksChartInterval = this.getNodeParameter('clicksChartInterval', i, '') as string;
+	const linkId = await resolveLinkId.call(this, this.getNodeParameter('link', i), i);
+
+	const response = await statsRequest.call(this, {
+		method: 'POST',
+		path: `/link/${encodeURIComponent(linkId)}/by_interval`,
+		body: compact({ ...period, tz, clicksChartInterval, ...filters }),
+		resource: 'link',
+		itemIndex: i,
+	});
+	return toItems.call(this, response);
+}
+
+async function getLinkTopValues(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
+	const { period, tz, filters } = commonParams.call(this, i);
+	const column = this.getNodeParameter('column', i) as string;
+	const limit = this.getNodeParameter('limit', i, 50) as number;
+	const prefix = this.getNodeParameter('prefix', i, '') as string;
+	const linkId = await resolveLinkId.call(this, this.getNodeParameter('link', i), i);
+
+	const response = await statsRequest.call(this, {
+		method: 'POST',
+		path: `/link/${encodeURIComponent(linkId)}/top`,
+		body: compact({ column, limit, prefix, ...period, tz, ...filters }),
+		resource: 'link',
+		itemIndex: i,
+	});
+	return toItems.call(this, response);
+}
+
 export const statisticsHandlers: Record<string, OperationEntry> = {
 	clearDomainStatistics: { kind: 'item', run: clearDomainStatistics },
 	getDomainStatistics: { kind: 'item', run: getDomainStatistics },
@@ -225,5 +285,8 @@ export const statisticsHandlers: Record<string, OperationEntry> = {
 	getDomainTopValues: { kind: 'item', run: getDomainTopValues },
 	getDomainTopValuesByInterval: { kind: 'item', run: getDomainTopValuesByInterval },
 	getLinkClicks: { kind: 'item', run: getLinkClicks },
+	getLinkStatistics: { kind: 'item', run: getLinkStatistics },
+	getLinkStatisticsByInterval: { kind: 'item', run: getLinkStatisticsByInterval },
+	getLinkTopValues: { kind: 'item', run: getLinkTopValues },
 	getRawClicks: { kind: 'item', run: getRawClicks },
 };

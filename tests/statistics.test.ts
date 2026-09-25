@@ -416,3 +416,104 @@ describe('clear domain statistics', () => {
 		expect(items).toEqual([{ json: { success: true, domainId: 123 } }]);
 	});
 });
+
+describe('link statistics', () => {
+	const LINK = { __rl: true, mode: 'id', value: 'lnk_abc_123' };
+
+	it('uses GET on the statistics host with skipTops in the query when no filters are set', async () => {
+		const exec = fakeExec(
+			{ link: LINK, period: 'week', options: { skipTops: true, clicksChartInterval: 'day' } },
+			[{ statusCode: 200, body: { totalClicks: 7 } }],
+		);
+
+		const items = await run('getLinkStatistics', exec);
+
+		const [opts] = calls(exec);
+		expect(opts.method).toBe('GET');
+		expect(opts.url).toBe('https://statistics.short.io/statistics/link/lnk_abc_123');
+		expect(opts.qs).toEqual({
+			period: 'week',
+			tz: 'Europe/Berlin',
+			clicksChartInterval: 'day',
+			skipTops: true,
+		});
+		expect(opts.body).toBeUndefined();
+		expect(items).toEqual([{ json: { totalClicks: 7 } }]);
+	});
+
+	it('uses POST with filters and skipTops in the body when filters are set', async () => {
+		const exec = fakeExec(
+			{
+				link: LINK,
+				filters: { exclude: { columns: { human: false } } },
+				options: { skipTops: false },
+			},
+			[{ statusCode: 200, body: { totalClicks: 1 } }],
+		);
+
+		await run('getLinkStatistics', exec);
+
+		const [opts] = calls(exec);
+		expect(opts.method).toBe('POST');
+		expect(opts.qs).toBeUndefined();
+		expect(opts.body).toEqual({
+			period: 'last30',
+			tz: 'Europe/Berlin',
+			skipTops: false,
+			exclude: { human: false },
+		});
+	});
+
+	it('posts link by_interval with clicksChartInterval', async () => {
+		const exec = fakeExec({ link: LINK, clicksChartInterval: 'month' }, [
+			{ statusCode: 200, body: { clickStatistics: [] } },
+		]);
+
+		await run('getLinkStatisticsByInterval', exec);
+
+		const [opts] = calls(exec);
+		expect(opts.method).toBe('POST');
+		expect(opts.url).toBe('https://statistics.short.io/statistics/link/lnk_abc_123/by_interval');
+		expect(opts.body).toEqual({ period: 'last30', tz: 'Europe/Berlin', clicksChartInterval: 'month' });
+	});
+
+	it('posts link top with column, limit and prefix', async () => {
+		const exec = fakeExec({ link: LINK, column: 'browser', limit: 3, prefix: 'Ch' }, [
+			{ statusCode: 200, body: [{ score: 2, column: 'Chrome', displayName: 'Chrome' }] },
+		]);
+
+		const items = await run('getLinkTopValues', exec);
+
+		const [opts] = calls(exec);
+		expect(opts.method).toBe('POST');
+		expect(opts.url).toBe('https://statistics.short.io/statistics/link/lnk_abc_123/top');
+		expect(opts.body).toEqual({
+			column: 'browser',
+			limit: 3,
+			prefix: 'Ch',
+			period: 'last30',
+			tz: 'Europe/Berlin',
+		});
+		expect(items).toHaveLength(1);
+	});
+
+	it.each(['getLinkStatistics', 'getLinkStatisticsByInterval', 'getLinkTopValues'])(
+		'%s rejects an invalid link id before any HTTP call',
+		async (operation) => {
+			const exec = fakeExec({ link: { __rl: true, mode: 'id', value: '../domain/1' }, column: 'path' });
+			await expect(run(operation, exec)).rejects.toThrow(/not a valid link ID/);
+			expect(calls(exec)).toHaveLength(0);
+		},
+	);
+
+	it('validates the period before resolving a short URL link', async () => {
+		const exec = fakeExec({
+			link: { __rl: true, mode: 'url', value: 'https://s.example/abc' },
+			period: 'custom',
+			startDate: '2026-09-10',
+			endDate: '2026-09-01',
+		});
+		await expect(run('getLinkStatistics', exec)).rejects.toThrow(/must not be after/);
+		expect(calls(exec)).toHaveLength(0);
+	});
+});
