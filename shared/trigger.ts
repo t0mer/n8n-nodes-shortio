@@ -28,7 +28,8 @@ function toMs(value: unknown): number {
 
 /**
  * Shared high-water-mark selection. An item is fresh when its date is after the mark, or equal
- * to it with a key not yet seen at the mark. Items with an unparseable date are skipped. Fresh
+ * to it with a key not yet seen at the mark. Items with an unparseable date or an empty key are
+ * skipped. Fresh
  * items come back oldest first, each key at most once. The next mark is the newest date seen;
  * its keys are merged with the old ones when the mark did not move.
  */
@@ -45,8 +46,9 @@ function selectNew(
 	const dated: Array<{ item: IDataObject; ms: number; key: string }> = [];
 	for (const item of items) {
 		const ms = toMs(dateOf(item));
-		if (Number.isNaN(ms)) continue;
-		dated.push({ item, ms, key: keyOf(item) });
+		const key = keyOf(item);
+		if (Number.isNaN(ms) || key === '') continue;
+		dated.push({ item, ms, key });
 	}
 
 	const emitted = new Set<string>();
@@ -93,9 +95,11 @@ export function selectNewLinks(
 	return { fresh, next: withMark(next.mark, { idsAtMark: next.keys }) };
 }
 
-/** Raw clicks have no id; this composite key identifies one. */
+const CLICK_KEY_FIELDS = ['dt', 'ip', 'path', 'ua', 'method', 'st', 'refhost'] as const;
+
+/** Raw clicks have no id; this composite key identifies one. Missing fields count as ''. */
 export function clickKey(c: IDataObject): string {
-	return `${String(c.dt ?? '')}|${String(c.ip ?? '')}|${String(c.path ?? '')}|${String(c.ua ?? '')}`;
+	return CLICK_KEY_FIELDS.map((field) => String(c[field] ?? '')).join('|');
 }
 
 /** Selects clicks newer than the saved mark (see {@link selectNew}), oldest first. */

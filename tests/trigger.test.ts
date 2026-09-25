@@ -98,13 +98,31 @@ describe('selectNewLinks', () => {
 		const l = link('lnk_a', '2026-09-25T10:00:00.000Z');
 		expect(selectNewLinks([l, { ...l }], { idsAtMark: [] }).fresh).toHaveLength(1);
 	});
+
+	it('skips links with neither idString nor id', () => {
+		const { fresh, next } = selectNewLinks(
+			[{ createdAt: '2026-09-25T10:00:09.000Z' }, link('lnk_a', '2026-09-25T10:00:00.000Z')],
+			{ idsAtMark: [] },
+		);
+		expect(fresh.map((l) => l.idString)).toEqual(['lnk_a']);
+		expect(next).toEqual({ mark: '2026-09-25T10:00:00.000Z', idsAtMark: ['lnk_a'] });
+	});
 });
 
 describe('clickKey', () => {
-	it('joins dt, ip, path and ua', () => {
-		expect(clickKey(click('2026-09-25T10:00:00.000Z', '1.2.3.4', '/abc', 'Mozilla'))).toBe(
-			'2026-09-25T10:00:00.000Z|1.2.3.4|/abc|Mozilla',
-		);
+	it('joins dt, ip, path, ua, method, st and refhost', () => {
+		expect(
+			clickKey({
+				...click('2026-09-25T10:00:00.000Z', '1.2.3.4', '/abc', 'Mozilla'),
+				method: 'GET',
+				st: 301,
+				refhost: 'example.com',
+			}),
+		).toBe('2026-09-25T10:00:00.000Z|1.2.3.4|/abc|Mozilla|GET|301|example.com');
+	});
+
+	it('uses an empty string for missing fields', () => {
+		expect(clickKey({ dt: '2026-09-25T10:00:00.000Z' })).toBe('2026-09-25T10:00:00.000Z||||||');
 	});
 });
 
