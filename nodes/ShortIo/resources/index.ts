@@ -7,6 +7,8 @@ import { linkHandlers } from './link/execute';
 import { generateQrCode, generateQrCodesMany } from './link/qr';
 import { linkOpenGraphDescription } from './linkOpenGraph/description';
 import { linkOpenGraphHandlers } from './linkOpenGraph/execute';
+import { linkPermissionDescription } from './linkPermission/description';
+import { linkPermissionHandlers } from './linkPermission/execute';
 
 export const HANDLERS: HandlerRegistry = {
 	domain: domainHandlers,
@@ -21,6 +23,7 @@ export const HANDLERS: HandlerRegistry = {
 		unarchiveMany: { kind: 'batch', run: unarchiveMany },
 	},
 	linkOpenGraph: linkOpenGraphHandlers,
+	linkPermission: linkPermissionHandlers,
 };
 
-export { domainDescription, linkDescription, linkOpenGraphDescription };
+export { domainDescription, linkDescription, linkOpenGraphDescription, linkPermissionDescription };
