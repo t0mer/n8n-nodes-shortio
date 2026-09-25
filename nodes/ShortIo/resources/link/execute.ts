@@ -1,10 +1,20 @@
 import { NodeOperationError } from 'n8n-workflow';
 import type { IDataObject, IExecuteFunctions, INodeExecutionData } from 'n8n-workflow';
 
-import { buildLinkBody } from '../../../../shared/fields';
-import { resolveDomainId, resolveLinkId } from '../../../../shared/locators';
+import { buildLinkBody, compact, toIsoDate } from '../../../../shared/fields';
+import { locatorValue, resolveDomainId, resolveLinkId } from '../../../../shared/locators';
+import { paginateToken } from '../../../../shared/pagination';
 import { shortIoRequest } from '../../../../shared/transport';
 import type { ExecContext, OperationEntry } from '../../../../shared/types';
+
+interface LinkGetManyFilters {
+	afterDate?: unknown;
+	beforeDate?: unknown;
+	createdAt?: unknown;
+	dateSortOrder?: string;
+	folderId?: unknown;
+	idString?: string;
+}
 
 async function create(
 	this: IExecuteFunctions,
@@ -91,6 +101,45 @@ async function getByOriginalUrl(
 	return this.helpers.returnJsonArray(response.links ?? []);
 }
 
+async function getMany(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
+	const domainParam = this.getNodeParameter('domain', i);
+	const returnAll = this.getNodeParameter('returnAll', i) as boolean;
+	const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
+	const filters = this.getNodeParameter('filters', i, {}) as LinkGetManyFilters;
+
+	const domainId = resolveDomainId(domainParam);
+	const filterQs = compact({
+		afterDate: toIsoDate(filters.afterDate),
+		beforeDate: toIsoDate(filters.beforeDate),
+		createdAt: toIsoDate(filters.createdAt),
+		dateSortOrder: filters.dateSortOrder,
+		folderId: filters.folderId !== undefined ? locatorValue(filters.folderId) : undefined,
+		idString: filters.idString,
+	});
+
+	const links = await paginateToken<IDataObject>(
+		async (token, pageSize) => {
+			const response = (await shortIoRequest.call(this, {
+				method: 'GET',
+				path: '/api/links',
+				qs: {
+					domain_id: domainId,
+					limit: pageSize,
+					...(token !== undefined ? { pageToken: token } : {}),
+					...filterQs,
+				},
+				resource: 'link',
+				itemIndex: i,
+			})) as { links: IDataObject[]; nextPageToken?: string | null };
+			return { items: response.links, next: response.nextPageToken };
+		},
+		limit,
+		150,
+	);
+
+	return this.helpers.returnJsonArray(links);
+}
+
 async function update(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
 	const linkParam = this.getNodeParameter('link', i);
 	const updateFields = this.getNodeParameter('updateFields', i, {}) as IDataObject;
@@ -135,5 +184,6 @@ export const linkHandlers: Record<string, OperationEntry> = {
 	get: { kind: 'item', run: get },
 	getByOriginalUrl: { kind: 'item', run: getByOriginalUrl },
 	getByPath: { kind: 'item', run: getByPath },
+	getMany: { kind: 'item', run: getMany },
 	update: { kind: 'item', run: update },
 };

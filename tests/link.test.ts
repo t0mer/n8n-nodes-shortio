@@ -158,6 +158,145 @@ describe('link get by original URL', () => {
 	});
 });
 
+describe('link get many', () => {
+	it('sends GET /api/links with domain_id and returns one item per link', async () => {
+		const exec = fakeExec(
+			{
+				domain: { __rl: true, mode: 'id', value: '123' },
+				returnAll: false,
+				limit: 50,
+				filters: {},
+			},
+			[
+				{
+					statusCode: 200,
+					body: { count: 1, links: [{ idString: 'link_a' }], nextPageToken: null },
+				},
+			],
+		);
+
+		const items = await run(linkHandlers.getMany, exec, 0, newCtx());
+
+		const [, opts] = calls(exec)[0] as [string, { method: string; url: string; qs: unknown }];
+		expect(opts).toMatchObject({
+			method: 'GET',
+			url: 'https://api.short.io/api/links',
+			qs: { domain_id: 123, limit: 50 },
+		});
+		expect(items).toHaveLength(1);
+		expect(items[0].json).toEqual({ idString: 'link_a' });
+	});
+
+	it('sends the filters collection through toIsoDate/locatorValue', async () => {
+		const exec = fakeExec(
+			{
+				domain: { __rl: true, mode: 'id', value: '5' },
+				returnAll: false,
+				limit: 50,
+				filters: {
+					afterDate: '2026-01-01T00:00:00.000Z',
+					beforeDate: '2026-06-01T00:00:00.000Z',
+					createdAt: '2026-02-01T00:00:00.000Z',
+					dateSortOrder: 'asc',
+					folderId: { __rl: true, mode: 'list', value: 'fld_1' },
+					idString: 'lnk_abc_d',
+				},
+			},
+			[{ statusCode: 200, body: { count: 0, links: [], nextPageToken: null } }],
+		);
+
+		await run(linkHandlers.getMany, exec, 0, newCtx());
+
+		const [, opts] = calls(exec)[0] as [string, { qs: unknown }];
+		expect(opts.qs).toEqual({
+			domain_id: 5,
+			limit: 50,
+			afterDate: '2026-01-01T00:00:00.000Z',
+			beforeDate: '2026-06-01T00:00:00.000Z',
+			createdAt: '2026-02-01T00:00:00.000Z',
+			dateSortOrder: 'asc',
+			folderId: 'fld_1',
+			idString: 'lnk_abc_d',
+		});
+	});
+
+	it('drops an empty folderId filter instead of sending an empty string', async () => {
+		const exec = fakeExec(
+			{
+				domain: { __rl: true, mode: 'id', value: '5' },
+				returnAll: false,
+				limit: 50,
+				filters: { folderId: { __rl: true, mode: 'list', value: '' } },
+			},
+			[{ statusCode: 200, body: { count: 0, links: [], nextPageToken: null } }],
+		);
+
+		await run(linkHandlers.getMany, exec, 0, newCtx());
+
+		const [, opts] = calls(exec)[0] as [string, { qs: unknown }];
+		expect(opts.qs).toEqual({ domain_id: 5, limit: 50 });
+	});
+
+	it('trims the page size to the remaining limit and stops after the first page', async () => {
+		const exec = fakeExec(
+			{
+				domain: { __rl: true, mode: 'id', value: '5' },
+				returnAll: false,
+				limit: 2,
+				filters: {},
+			},
+			[
+				{
+					statusCode: 200,
+					body: {
+						count: 10,
+						links: [{ idString: 'link_a' }, { idString: 'link_b' }],
+						nextPageToken: 'page_x',
+					},
+				},
+			],
+		);
+
+		const items = await run(linkHandlers.getMany, exec, 0, newCtx());
+
+		expect(exec.helpers.httpRequestWithAuthentication).toHaveBeenCalledTimes(1);
+		const [, opts] = calls(exec)[0] as [string, { qs: unknown }];
+		expect(opts.qs).toMatchObject({ limit: 2 });
+		expect(items).toHaveLength(2);
+	});
+
+	it('follows nextPageToken across pages when returnAll is set', async () => {
+		const exec = fakeExec(
+			{
+				domain: { __rl: true, mode: 'id', value: '5' },
+				returnAll: true,
+				filters: {},
+			},
+			[
+				{
+					statusCode: 200,
+					body: { count: 2, links: [{ idString: 'link_a' }], nextPageToken: 'page_2' },
+				},
+				{
+					statusCode: 200,
+					body: { count: 2, links: [{ idString: 'link_b' }], nextPageToken: null },
+				},
+			],
+		);
+
+		const items = await run(linkHandlers.getMany, exec, 0, newCtx());
+
+		expect(exec.helpers.httpRequestWithAuthentication).toHaveBeenCalledTimes(2);
+		const [, firstOpts] = calls(exec)[0] as [string, { qs: Record<string, unknown> }];
+		expect(firstOpts.qs.pageToken).toBeUndefined();
+		const [, secondOpts] = calls(exec)[1] as [string, { qs: Record<string, unknown> }];
+		expect(secondOpts.qs.pageToken).toBe('page_2');
+		expect(items).toHaveLength(2);
+		expect(items[0].json).toEqual({ idString: 'link_a' });
+		expect(items[1].json).toEqual({ idString: 'link_b' });
+	});
+});
+
 describe('link update', () => {
 	it('throws NodeOperationError and makes no HTTP call when updateFields is empty', async () => {
 		const exec = fakeExec(

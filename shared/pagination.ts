@@ -23,3 +23,42 @@ export async function paginateOffset<T>(
 
 	return limit !== undefined ? items.slice(0, limit) : items;
 }
+
+/**
+ * Walks a token-paginated endpoint, calling `fetchPage(token, pageSize)` until the response's
+ * `next` token is missing, until `limit` items have been collected, or until a loop guard trips
+ * (an empty page, or a `next` token that repeats one already used). `limit` of `undefined` fetches
+ * everything. Each page requests `min(remaining, maxPageSize)` items when `limit` is set.
+ */
+export async function paginateToken<T>(
+	fetchPage: (
+		token: string | undefined,
+		pageSize: number,
+	) => Promise<{ items: T[]; next?: string | null }>,
+	limit: number | undefined,
+	maxPageSize: number,
+): Promise<T[]> {
+	const items: T[] = [];
+	const seenTokens = new Set<string>();
+	let token: string | undefined;
+
+	for (;;) {
+		const remaining = limit !== undefined ? limit - items.length : undefined;
+		const pageSize = remaining !== undefined ? Math.min(remaining, maxPageSize) : maxPageSize;
+
+		const page = await fetchPage(token, pageSize);
+		items.push(...page.items);
+
+		if (page.items.length === 0) break;
+		if (limit !== undefined && items.length >= limit) break;
+
+		const next = page.next ?? undefined;
+		if (next === undefined) break;
+		if (seenTokens.has(next)) break;
+
+		seenTokens.add(next);
+		token = next;
+	}
+
+	return limit !== undefined ? items.slice(0, limit) : items;
+}

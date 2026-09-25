@@ -1,6 +1,6 @@
 import type { INodeProperties } from 'n8n-workflow';
 
-import { domainLocator, linkLocator } from '../../descriptions/common';
+import { domainLocator, folderLocator, linkLocator } from '../../descriptions/common';
 import { linkAdditionalFields } from '../../descriptions/linkFields';
 
 const show = { resource: ['link'] };
@@ -68,6 +68,12 @@ export const linkDescription: INodeProperties[] = [
 				action: 'Get a link by path',
 			},
 			{
+				name: 'Get Many',
+				value: 'getMany',
+				description: 'Get many links on a domain',
+				action: 'Get many links',
+			},
+			{
 				name: 'Update',
 				value: 'update',
 				description: 'Update a link',
@@ -95,7 +101,7 @@ export const linkDescription: INodeProperties[] = [
 		displayOptions: { show: { ...show, operation: ['create'] } },
 		options: linkAdditionalFields(false),
 	},
-	linkLocator({ ...show, operation: ['get', 'update', 'delete'] }),
+	linkLocator({ ...show, operation: ['delete', 'get', 'update'] }),
 	{
 		displayName: 'Update Fields',
 		name: 'updateFields',
@@ -124,5 +130,73 @@ export const linkDescription: INodeProperties[] = [
 		default: '',
 		description: 'Find every link on the domain that redirects to this URL',
 		displayOptions: { show: { ...show, operation: ['getByOriginalUrl'] } },
+	},
+	domainLocator({ ...show, operation: ['getMany'] }),
+	{
+		displayName: 'Return All',
+		name: 'returnAll',
+		type: 'boolean',
+		default: false,
+		description: 'Whether to return all results or only up to a given limit',
+		displayOptions: { show: { ...show, operation: ['getMany'] } },
+	},
+	{
+		displayName: 'Limit',
+		name: 'limit',
+		type: 'number',
+		default: 50,
+		typeOptions: { minValue: 1, maxValue: 1000 },
+		description: 'Max number of results to return',
+		displayOptions: { show: { ...show, operation: ['getMany'], returnAll: [false] } },
+	},
+	{
+		displayName: 'Filters',
+		name: 'filters',
+		type: 'collection',
+		placeholder: 'Add Filter',
+		default: {},
+		displayOptions: { show: { ...show, operation: ['getMany'] } },
+		options: [
+			{
+				displayName: 'After Date',
+				name: 'afterDate',
+				type: 'dateTime',
+				default: '',
+				description: 'Only return links created after this date',
+			},
+			{
+				displayName: 'Before Date',
+				name: 'beforeDate',
+				type: 'dateTime',
+				default: '',
+				description: 'Only return links created before this date',
+			},
+			{
+				displayName: 'Created At',
+				name: 'createdAt',
+				type: 'dateTime',
+				default: '',
+				description: 'Only return links created at this date',
+			},
+			{
+				displayName: 'Date Sort Order',
+				name: 'dateSortOrder',
+				type: 'options',
+				options: [
+					{ name: 'Ascending', value: 'asc' },
+					{ name: 'Descending', value: 'desc' },
+				],
+				default: 'desc',
+				description: 'The order in which to sort links by creation date',
+			},
+			folderLocator({}, 'folderId', { required: false }),
+			{
+				displayName: 'ID String',
+				name: 'idString',
+				type: 'string',
+				default: '',
+				description: 'Only return the link with this ID string',
+			},
+		],
 	},
 ];
