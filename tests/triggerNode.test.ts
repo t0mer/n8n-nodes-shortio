@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IDataObject, IPollFunctions } from 'n8n-workflow';
 
 import { ShortIoTrigger } from '../nodes/ShortIoTrigger/ShortIoTrigger.node';
@@ -169,6 +169,9 @@ describe('ShortIoTrigger New Click', () => {
 	const params = { event: 'newClick', domain: DOMAIN };
 	const URL = 'https://statistics.short.io/statistics/domain/42/last_clicks';
 	const T0 = Date.parse('2026-09-25T10:00:00.000Z');
+	// Fixed "now" for every test in this block, comfortably after every click/mark used below
+	// (up to +2100s), so a later poll's `endDate: <now>` is deterministic.
+	const NOW = T0 + 3_000_000;
 	/** A click `s` seconds after T0, with a distinct ip. */
 	const clickAt = (s: number, ip = `10.0.0.${s}`) => ({
 		dt: iso(T0 + s * 1000),
@@ -185,6 +188,14 @@ describe('ShortIoTrigger New Click', () => {
 	});
 	const dts = (out: Awaited<ReturnType<typeof poll>>) => out![0].map((i) => i.json.dt);
 
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(NOW);
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
 	it('first activation reads one page with period total and sets the mark', async () => {
 		const state: IDataObject = {};
 		const ctx = fakePoll(params, [clicks(range(200, 101)), clicks(range(100, 1))], state);
@@ -200,21 +211,23 @@ describe('ShortIoTrigger New Click', () => {
 		});
 	});
 
-	it('sends afterDate one second before the mark and emits newer clicks oldest first', async () => {
+	it('later polls send period custom with cursors at mark - 1s and endDate now, and emit newer clicks oldest first', async () => {
 		const state = activated(0, [clickKey(clickAt(0))]);
 		const ctx = fakePoll(params, [clicks([clickAt(2), clickAt(1), clickAt(0)])], state);
 
 		expect(dts(await poll(ctx))).toEqual([clickAt(1).dt, clickAt(2).dt]);
 		expect(calls(ctx)[0].body).toEqual({
 			limit: 100,
-			period: 'total',
-			tz: 'UTC',
+			period: 'custom',
+			startDate: iso(T0 - 1000),
+			endDate: iso(NOW),
 			afterDate: iso(T0 - 1000),
+			tz: 'UTC',
 		});
 		expect(state.newClick).toMatchObject({ mark: clickAt(2).dt });
 	});
 
-	it('pages backwards with beforeDate cursors until a short page', async () => {
+	it('pages backwards with beforeDate cursors (oldest + 1 ms) until a short page', async () => {
 		const state = activated(-100);
 		const ctx = fakePoll(
 			params,
@@ -225,12 +238,18 @@ describe('ShortIoTrigger New Click', () => {
 		const out = await poll(ctx);
 		const bodies = calls(ctx).map((c) => c.body);
 		expect(bodies).toHaveLength(3);
-		expect(bodies[0]).not.toHaveProperty('beforeDate');
-		expect(bodies[1]).toMatchObject({
-			beforeDate: iso(T0 + 152_000),
+		expect(bodies[0]).toMatchObject({
+			period: 'custom',
+			startDate: iso(T0 - 101_000),
+			endDate: iso(NOW),
 			afterDate: iso(T0 - 101_000),
 		});
-		expect(bodies[2]).toMatchObject({ beforeDate: iso(T0 + 53_000), afterDate: iso(T0 - 101_000) });
+		expect(bodies[0]).not.toHaveProperty('beforeDate');
+		expect(bodies[1]).toMatchObject({
+			beforeDate: iso(T0 + 151_001),
+			afterDate: iso(T0 - 101_000),
+		});
+		expect(bodies[2]).toMatchObject({ beforeDate: iso(T0 + 52_001), afterDate: iso(T0 - 101_000) });
 		expect(dts(out)).toEqual(
 			range(250, 1)
 				.reverse()
@@ -251,7 +270,7 @@ describe('ShortIoTrigger New Click', () => {
 		);
 	});
 
-	it('stops paging when a full page adds no new clicks', async () => {
+	it('stops paging and warns when a full page adds no new clicks while still newer than the mark', async () => {
 		const state = activated(-100);
 		const page = range(199, 100);
 		const ctx = fakePoll(params, [clicks(page), clicks(page), clicks(range(99, 0))], state);
@@ -259,6 +278,10 @@ describe('ShortIoTrigger New Click', () => {
 		const out = await poll(ctx);
 		expect(calls(ctx)).toHaveLength(2);
 		expect(out![0]).toHaveLength(100);
+		expect(ctx.logger.warn).toHaveBeenCalledTimes(1);
+		expect(
+			String((ctx.logger.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0]),
+		).toMatch(/full page with no new clicks/);
 	});
 
 	it('stops at 20 pages, logs a warning, and still emits and advances the mark', async () => {

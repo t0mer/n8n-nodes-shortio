@@ -97,22 +97,39 @@ async function requestClicks(
 }
 
 /**
- * Raw clicks come newest first. Later polls page backwards (`beforeDate` = oldest `dt` on the
- * page + 1 s, an overlap because `dt` has second precision) until a short page, a page reaching
- * the mark, a page with no new clicks, or {@link MAX_CLICK_PAGES}. `afterDate` is the mark
- * minus 1 s; `selectNewClicks` dedupes the overlap. `period: 'total'` overrides the API's
- * last-30-days default.
+ * `last_clicks` ignores `afterDate`/`beforeDate` while `period: 'total'` (Part C evidence); they
+ * are honoured, to the millisecond, under any other period. So manual mode and the first
+ * activation poll (no mark yet, nothing to page from) still use `period: 'total'`, but a later
+ * poll (a mark exists) uses `period: 'custom'` with a wide `startDate` instead, which does honour
+ * the cursors. Raw clicks come newest first; later polls page backwards (`beforeDate` = oldest
+ * `dt` on the page + 1 ms, an overlap `dt`'s millisecond precision lets `selectNewClicks` dedupe)
+ * until a short page, a page reaching the mark, a page with no new clicks, or
+ * {@link MAX_CLICK_PAGES}. `afterDate`/`startDate` are the mark minus 1 s. `endDate` is the current
+ * time, which as a side effect keeps the request body from repeating between polls — the API
+ * caches an identical body for about 60 s, which would otherwise delay a click's emission by up to
+ * one poll.
  */
 async function fetchClicks(this: IPollFunctions, opts: FetchOptions): Promise<IDataObject[]> {
+	if (opts.mode !== 'poll' || opts.mark === undefined) {
+		const base: IDataObject = {
+			limit: opts.mode === 'manual' ? 1 : CLICK_PAGE_SIZE,
+			period: 'total',
+			tz: 'UTC',
+		};
+		return requestClicks.call(this, opts.domainId, base);
+	}
+
+	const cursorStart = shiftIso(opts.mark, -1000);
 	const base: IDataObject = {
-		limit: opts.mode === 'manual' ? 1 : CLICK_PAGE_SIZE,
-		period: 'total',
+		limit: CLICK_PAGE_SIZE,
+		period: 'custom',
+		startDate: cursorStart,
+		endDate: new Date().toISOString(),
+		afterDate: cursorStart,
 		tz: 'UTC',
 	};
-	if (opts.mode !== 'poll') return requestClicks.call(this, opts.domainId, base);
-	if (opts.mark !== undefined) base.afterDate = shiftIso(opts.mark, -1000);
 
-	const markMs = opts.mark !== undefined ? Date.parse(opts.mark) : NaN;
+	const markMs = Date.parse(opts.mark);
 	const all: IDataObject[] = [];
 	const keys = new Set<string>();
 	let beforeDate: string | undefined;
@@ -132,10 +149,22 @@ async function fetchClicks(this: IPollFunctions, opts: FetchOptions): Promise<ID
 			all.push(c);
 			added++;
 		}
-		if (list.length < CLICK_PAGE_SIZE || added === 0) break;
 
 		const dates = list.map((c) => Date.parse(String(c.dt ?? ''))).filter(Number.isFinite);
 		const oldest = dates.length > 0 ? Math.min(...dates) : NaN;
+
+		if (list.length < CLICK_PAGE_SIZE || added === 0) {
+			// A full page that added nothing new but is still newer than the mark means there may
+			// be unseen clicks between them that the ~60 s response cache held back; the next
+			// poll's fresh `endDate` should pick them up, but warn so a persistent gap is visible
+			// (deferred Minor from the Task 22 review).
+			if (list.length === CLICK_PAGE_SIZE && !Number.isNaN(oldest) && oldest > markMs) {
+				this.logger.warn(
+					'Short.io Trigger: New Click got a full page with no new clicks while still newer than the saved mark; clicks between them may be delayed to a later poll',
+				);
+			}
+			break;
+		}
 		if (Number.isNaN(oldest) || oldest <= markMs) break;
 
 		if (page >= MAX_CLICK_PAGES) {
@@ -144,7 +173,7 @@ async function fetchClicks(this: IPollFunctions, opts: FetchOptions): Promise<ID
 			);
 			break;
 		}
-		beforeDate = new Date(oldest + 1000).toISOString();
+		beforeDate = new Date(oldest + 1).toISOString();
 	}
 	return all;
 }
