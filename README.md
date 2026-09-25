@@ -214,6 +214,9 @@ up to 3 attempts in total, honouring the `Retry-After` header when Short.io send
   Social, Status, UTM Campaign, UTM Medium, UTM Source.
 - **Limit** on the Top Values operations and Get Raw Clicks defaults to 50, with no documented
   maximum.
+- Charts (Get Domain/Link Statistics by Interval), the Top Values operations and Get Link Clicks
+  count **human clicks only** by default; the plain click totals (`clicks`/`totalClicks` from Get
+  Domain/Link Statistics) count all clicks, bots included.
 
 ## Excluded
 
