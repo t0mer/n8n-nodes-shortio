@@ -5,7 +5,7 @@ import { DomainCache } from '../../shared/locators';
 import type { ExecContext } from '../../shared/types';
 import { searchDomains, searchFolders } from './methods/listSearch';
 import { runOperations } from './router';
-import { domainDescription, HANDLERS } from './resources';
+import { domainDescription, HANDLERS, linkDescription } from './resources';
 
 export class ShortIo implements INodeType {
 	description: INodeTypeDescription = {
@@ -28,10 +28,14 @@ export class ShortIo implements INodeType {
 				name: 'resource',
 				type: 'options',
 				noDataExpression: true,
-				options: [{ name: 'Domain', value: 'domain' }],
+				options: [
+					{ name: 'Domain', value: 'domain' },
+					{ name: 'Link', value: 'link' },
+				],
 				default: 'domain',
 			},
 			...domainDescription,
+			...linkDescription,
 		],
 	};
 

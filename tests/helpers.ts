@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import type { INode } from 'n8n-workflow';
+import type { IDataObject, INode } from 'n8n-workflow';
 import type { ShortIoContext } from '../shared/transport';
 
 export const NODE: INode = {
@@ -31,6 +31,8 @@ export function fakeCtx(responses: Resp[], extra: Record<string, unknown> = {}):
 				fileName: f,
 				mimeType: m,
 			})),
+			returnJsonArray: (jsonData: IDataObject | IDataObject[]) =>
+				(Array.isArray(jsonData) ? jsonData : [jsonData]).map((json) => ({ json })),
 		},
 		...extra,
 	} as unknown as ShortIoContext;
