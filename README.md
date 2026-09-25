@@ -13,6 +13,13 @@ clicks.
 > **Status:** All planned operations are implemented. The first npm release has not been published
 > yet — see [Installation](#installation).
 
+## Demo
+
+![Short.io node demo: create a branded short link and generate its QR code](assets/demo/shortio-demo.gif)
+
+[Watch the full demo video (MP4)](assets/demo/shortio-demo.mp4)
+
+- [Demo](#demo)
 - [Installation](#installation)
 - [Credentials](#credentials)
 - [Operations](#operations)
