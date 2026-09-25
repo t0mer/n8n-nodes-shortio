@@ -154,6 +154,24 @@ export async function resolveLinkId(
 	return value;
 }
 
+const FOLDER_ID_RE = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Resolves a Folder resourceLocator (or plain string) to its folder id and validates it before
+ * it's interpolated into a request path. Rejects anything else (including a
+ * path-traversal-shaped expression value) with a `NodeOperationError`. The caller is still
+ * responsible for `encodeURIComponent`-ing the result when building the path.
+ */
+export function resolveFolderId(this: IExecuteFunctions, param: unknown, i: number): string {
+	const raw = locatorValue(param);
+	if (!raw || !FOLDER_ID_RE.test(raw)) {
+		throw new NodeOperationError(this.getNode(), `"${raw}" is not a valid folder ID`, {
+			itemIndex: i,
+		});
+	}
+	return raw;
+}
+
 const COUNTRY_CODE_RE = /^[A-Z]{2}$/;
 /** ISO 3166-2 subdivision codes seen from the API are 1-3 alphanumerics (the live probe returns e.g. `CA`). */
 const REGION_CODE_RE = /^[A-Za-z0-9]{1,3}$/;

@@ -8,6 +8,7 @@ import { searchDomains, searchFolders } from './methods/listSearch';
 import { runOperations } from './router';
 import {
 	domainDescription,
+	folderDescription,
 	HANDLERS,
 	linkDescription,
 	linkCountryDescription,
@@ -39,6 +40,7 @@ export class ShortIo implements INodeType {
 				noDataExpression: true,
 				options: [
 					{ name: 'Domain', value: 'domain' },
+					{ name: 'Folder', value: 'folder' },
 					{ name: 'Link', value: 'link' },
 					{ name: 'Link Country Targeting', value: 'linkCountry' },
 					{ name: 'Link OpenGraph', value: 'linkOpenGraph' },
@@ -48,6 +50,7 @@ export class ShortIo implements INodeType {
 				default: 'domain',
 			},
 			...domainDescription,
+			...folderDescription,
 			...linkDescription,
 			...linkCountryDescription,
 			...linkOpenGraphDescription,

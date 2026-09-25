@@ -1,6 +1,8 @@
 import type { HandlerRegistry } from '../../../shared/types';
 import { domainDescription } from './domain/description';
 import { domainHandlers } from './domain/execute';
+import { folderDescription } from './folder/description';
+import { folderHandlers } from './folder/execute';
 import { linkDescription } from './link/description';
 import { archiveMany, createMany, deleteMany, tagMany, unarchiveMany } from './link/bulk';
 import { linkHandlers } from './link/execute';
@@ -16,6 +18,7 @@ import { linkRegionHandlers } from './linkRegion/execute';
 
 export const HANDLERS: HandlerRegistry = {
 	domain: domainHandlers,
+	folder: folderHandlers,
 	link: {
 		...linkHandlers,
 		archiveMany: { kind: 'batch', run: archiveMany },
@@ -34,6 +37,7 @@ export const HANDLERS: HandlerRegistry = {
 
 export {
 	domainDescription,
+	folderDescription,
 	linkDescription,
 	linkCountryDescription,
 	linkOpenGraphDescription,
