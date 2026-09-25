@@ -2,12 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { NodeOperationError } from 'n8n-workflow';
 import type { IExecuteFunctions } from 'n8n-workflow';
 
-import {
-	buildPeriod,
-	buildStatsFilters,
-	buildTimezone,
-	toStatsDate,
-} from '../nodes/ShortIo/descriptions/statistics';
+import { buildPeriod, buildStatsFilters, buildTimezone } from '../nodes/ShortIo/descriptions/statistics';
 import { statisticsDescription } from '../nodes/ShortIo/resources/statistics/description';
 import { statisticsHandlers } from '../nodes/ShortIo/resources/statistics/execute';
 import type { ItemHandler } from '../shared/types';
@@ -54,21 +49,6 @@ describe('removed operations (404 Route not found on the live API)', () => {
 	});
 });
 
-describe('toStatsDate', () => {
-	it('keeps the calendar date of a zone-less n8n dateTime string', () => {
-		expect(toStatsDate('2026-09-01T00:00:00')).toBe('2026-09-01');
-	});
-
-	it('slices an ISO date-time to YYYY-MM-DD and omits empty values', () => {
-		expect(toStatsDate('2026-09-01T23:30:00.000Z')).toBe('2026-09-01');
-		expect(toStatsDate('')).toBeUndefined();
-	});
-
-	it('throws on an unparseable date', () => {
-		expect(() => toStatsDate('not a date')).toThrow();
-	});
-});
-
 describe('buildPeriod', () => {
 	it('returns only the period for a preset', () => {
 		const exec = fakeExec({ period: 'last7', startDate: '2026-01-01' });
@@ -79,26 +59,30 @@ describe('buildPeriod', () => {
 		expect(buildPeriod(fakeExec({}), 0)).toEqual({ period: 'last30' });
 	});
 
-	it('adds YYYY-MM-DD start and end dates for custom', () => {
+	it('sends full ISO start and end date-times for custom', () => {
 		const exec = fakeExec({
 			period: 'custom',
-			startDate: '2026-09-01T00:00:00',
-			endDate: '2026-09-15T00:00:00',
+			startDate: '2026-09-01T00:00:00.000Z',
+			endDate: '2026-09-15T23:59:59.000Z',
 		});
 		expect(buildPeriod(exec, 0)).toEqual({
 			period: 'custom',
-			startDate: '2026-09-01',
-			endDate: '2026-09-15',
+			startDate: '2026-09-01T00:00:00.000Z',
+			endDate: '2026-09-15T23:59:59.000Z',
 		});
 	});
 
 	it('accepts equal start and end dates', () => {
 		const exec = fakeExec({ period: 'custom', startDate: '2026-09-01', endDate: '2026-09-01' });
-		expect(buildPeriod(exec, 0).startDate).toBe('2026-09-01');
+		expect(buildPeriod(exec, 0).startDate).toBe('2026-09-01T00:00:00.000Z');
 	});
 
 	it('rejects a start date after the end date', () => {
-		const exec = fakeExec({ period: 'custom', startDate: '2026-09-15', endDate: '2026-09-01' });
+		const exec = fakeExec({
+			period: 'custom',
+			startDate: '2026-09-15T00:00:00.000Z',
+			endDate: '2026-09-01T00:00:00.000Z',
+		});
 		expect(() => buildPeriod(exec, 0)).toThrow(/must not be after/);
 	});
 
@@ -126,8 +110,8 @@ describe('buildStatsFilters', () => {
 					browsers: ' Chrome, Firefox ,,Chrome',
 					statuses: '301, 404',
 					countries: ['us', 'IL'],
-					dtStart: '2026-09-01T00:00:00',
-					dtEnd: '2026-09-02T00:00:00',
+					dtStart: '2026-09-01T00:00:00.000Z',
+					dtEnd: '2026-09-02T00:00:00.000Z',
 					human: true,
 				},
 			},
@@ -138,7 +122,7 @@ describe('buildStatsFilters', () => {
 				browsers: ['Chrome', 'Firefox'],
 				statuses: [301, 404],
 				countries: ['US', 'IL'],
-				dt: ['2026-09-01', '2026-09-02'],
+				dt: ['2026-09-01T00:00:00.000Z', '2026-09-02T00:00:00.000Z'],
 				human: true,
 			},
 			exclude: { refhosts: ['spam.example'] },
@@ -214,8 +198,8 @@ describe('get domain statistics', () => {
 		expect(opts.qs).toBeUndefined();
 		expect(opts.body).toEqual({
 			period: 'custom',
-			startDate: '2026-09-01',
-			endDate: '2026-09-02',
+			startDate: '2026-09-01T00:00:00.000Z',
+			endDate: '2026-09-02T00:00:00.000Z',
 			tz: 'Europe/Berlin',
 			clicksChartInterval: 'hour',
 			include: { paths: ['a', 'b'] },
@@ -299,7 +283,11 @@ describe('get link clicks', () => {
 		const [opts] = calls(exec);
 		expect(opts.method).toBe('GET');
 		expect(opts.url).toBe('https://statistics.short.io/statistics/domain/123/link_clicks');
-		expect(opts.qs).toEqual({ ids: 'lnk_a1,link_b2', startDate: '2026-09-01', endDate: '2026-09-10' });
+		expect(opts.qs).toEqual({
+			ids: 'lnk_a1,link_b2',
+			startDate: '2026-09-01T00:00:00.000Z',
+			endDate: '2026-09-10T00:00:00.000Z',
+		});
 		expect(items).toEqual([{ json: { lnk_a1: 4, link_b2: 0 } }]);
 	});
 
@@ -329,7 +317,7 @@ describe('get link clicks', () => {
 
 		const [opts] = calls(exec);
 		expect(opts.method).toBe('POST');
-		expect(opts.qs).toEqual({ startDate: '2026-09-01' });
+		expect(opts.qs).toEqual({ startDate: '2026-09-01T00:00:00.000Z' });
 		expect(opts.body).toEqual({
 			pathsDates: [
 				{ path: 'https://s.example/abc', createdAt: '2026-08-17T16:16:06.000Z' },

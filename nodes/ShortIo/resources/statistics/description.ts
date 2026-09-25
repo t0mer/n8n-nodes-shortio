@@ -196,7 +196,7 @@ export const statisticsDescription: INodeProperties[] = [
 		type: 'collection',
 		placeholder: 'Add Date',
 		default: {},
-		description: 'Optional date range to count clicks in (sent as YYYY-MM-DD)',
+		description: 'Optional date range to count clicks in',
 		displayOptions: { show: op('getLinkClicks') },
 		options: [
 			{
@@ -204,14 +204,14 @@ export const statisticsDescription: INodeProperties[] = [
 				name: 'endDate',
 				type: 'dateTime',
 				default: '',
-				description: 'Only count clicks on or before this date',
+				description: 'Only count clicks on or before this date. Inclusive date/time.',
 			},
 			{
 				displayName: 'Start Date',
 				name: 'startDate',
 				type: 'dateTime',
 				default: '',
-				description: 'Only count clicks on or after this date',
+				description: 'Only count clicks on or after this date. Inclusive date/time.',
 			},
 		],
 	},

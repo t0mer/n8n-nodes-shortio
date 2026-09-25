@@ -5,12 +5,7 @@ import { compact, toIsoDate, unwrapOrSuccess } from '../../../../shared/fields';
 import { LINK_ID_REGEX, resolveDomainId, resolveLinkId } from '../../../../shared/locators';
 import { shortIoRequest, type ShortIoRequest } from '../../../../shared/transport';
 import type { OperationEntry } from '../../../../shared/types';
-import {
-	buildPeriod,
-	buildStatsFilters,
-	buildTimezone,
-	toStatsDate,
-} from '../../descriptions/statistics';
+import { buildPeriod, buildStatsFilters, buildTimezone } from '../../descriptions/statistics';
 
 const LINK_ID_RE = new RegExp(LINK_ID_REGEX);
 
@@ -93,8 +88,8 @@ async function getDomainTopValues(this: IExecuteFunctions, i: number): Promise<I
 async function getLinkClicks(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
 	const identifyBy = this.getNodeParameter('identifyBy', i, 'id') as string;
 	const dateRange = this.getNodeParameter('dateRange', i, {}) as IDataObject;
-	const startDate = toStatsDate(dateRange.startDate);
-	const endDate = toStatsDate(dateRange.endDate);
+	const startDate = toIsoDate(dateRange.startDate);
+	const endDate = toIsoDate(dateRange.endDate);
 	if (startDate !== undefined && endDate !== undefined && startDate > endDate) {
 		throw new NodeOperationError(
 			this.getNode(),

@@ -121,7 +121,7 @@ export function periodProperties(show: IDisplayOptions['show']): INodeProperties
 			type: 'dateTime',
 			default: '',
 			required: true,
-			description: 'Only count clicks on or after this date (sent as YYYY-MM-DD)',
+			description: 'Only count clicks on or after this date. Inclusive date/time.',
 			displayOptions: { show: { ...show, period: ['custom'] } },
 		},
 		{
@@ -130,7 +130,7 @@ export function periodProperties(show: IDisplayOptions['show']): INodeProperties
 			type: 'dateTime',
 			default: '',
 			required: true,
-			description: 'Only count clicks on or before this date (sent as YYYY-MM-DD)',
+			description: 'Only count clicks on or before this date. Inclusive date/time.',
 			displayOptions: { show: { ...show, period: ['custom'] } },
 		},
 	];
@@ -194,21 +194,6 @@ export function filtersProperty(show: IDisplayOptions['show']): INodeProperties 
 	};
 }
 
-/**
- * Normalizes a date-ish value to `YYYY-MM-DD` (the spec's `format: date`). A string that already
- * starts with a calendar date keeps that date verbatim, so a zone-less n8n dateTime value
- * (`2026-09-01T00:00:00`) isn't shifted by the server's UTC offset. Returns `undefined` when empty.
- */
-export function toStatsDate(v: unknown): string | undefined {
-	const iso = toIsoDate(v);
-	if (iso === undefined) return undefined;
-	if (typeof v === 'string') {
-		const match = /^\s*(\d{4}-\d{2}-\d{2})/.exec(v);
-		if (match) return match[1];
-	}
-	return iso.slice(0, 10);
-}
-
 function splitCsv(v: unknown): string[] {
 	let raw: unknown[];
 	if (Array.isArray(v)) raw = v;
@@ -258,8 +243,8 @@ function buildFilterSet(columns: IDataObject, label: string): IDataObject | unde
 	});
 	if (countries.length > 0) out.countries = [...new Set(countries)];
 
-	const dtStart = toStatsDate(columns.dtStart);
-	const dtEnd = toStatsDate(columns.dtEnd);
+	const dtStart = toIsoDate(columns.dtStart);
+	const dtEnd = toIsoDate(columns.dtEnd);
 	if (dtStart !== undefined || dtEnd !== undefined) {
 		if (dtStart === undefined || dtEnd === undefined) {
 			throw new Error(`${label} filter: Date Range needs both a start and an end`);
@@ -302,14 +287,16 @@ export interface PeriodFields extends IDataObject {
 
 /**
  * Reads `period` (and, for `custom`, the required `startDate`/`endDate`) for item `i`. Dates are
- * sent as `YYYY-MM-DD`; a start date after the end date is rejected before any HTTP call.
+ * sent as full ISO date-times (the API treats a bare `YYYY-MM-DD` end date as midnight at the
+ * start of that day, excluding the whole day); a start date after the end date is rejected before
+ * any HTTP call.
  */
 export function buildPeriod(fn: IExecuteFunctions, i: number): PeriodFields {
 	const period = fn.getNodeParameter('period', i, 'last30') as string;
 	if (period !== 'custom') return { period };
 
-	const startDate = toStatsDate(fn.getNodeParameter('startDate', i, ''));
-	const endDate = toStatsDate(fn.getNodeParameter('endDate', i, ''));
+	const startDate = toIsoDate(fn.getNodeParameter('startDate', i, ''));
+	const endDate = toIsoDate(fn.getNodeParameter('endDate', i, ''));
 	if (startDate === undefined || endDate === undefined) {
 		throw new NodeOperationError(fn.getNode(), 'Start Date and End Date are required when Period is Custom', {
 			itemIndex: i,
