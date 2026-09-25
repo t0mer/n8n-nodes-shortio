@@ -90,26 +90,6 @@ async function getDomainTopValues(this: IExecuteFunctions, i: number): Promise<I
 	return toItems.call(this, response);
 }
 
-async function getDomainTopValuesByInterval(
-	this: IExecuteFunctions,
-	i: number,
-): Promise<INodeExecutionData[]> {
-	const { period, tz, filters } = commonParams.call(this, i);
-	const column = this.getNodeParameter('column', i) as string;
-	const interval = this.getNodeParameter('interval', i, '') as string;
-	const limit = this.getNodeParameter('limit', i, 50) as number;
-	const domainId = resolveDomainId(this.getNodeParameter('domain', i));
-
-	const response = await statsRequest.call(this, {
-		method: 'POST',
-		path: `/domain/${domainId}/top_by_interval`,
-		body: compact({ column, interval, limit, ...period, tz, ...filters }),
-		resource: 'domain',
-		itemIndex: i,
-	});
-	return toItems.call(this, response);
-}
-
 async function getLinkClicks(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
 	const identifyBy = this.getNodeParameter('identifyBy', i, 'id') as string;
 	const dateRange = this.getNodeParameter('dateRange', i, {}) as IDataObject;
@@ -195,29 +175,6 @@ async function getRawClicks(this: IExecuteFunctions, i: number): Promise<INodeEx
 	return toItems.call(this, response);
 }
 
-async function clearDomainStatistics(
-	this: IExecuteFunctions,
-	i: number,
-): Promise<INodeExecutionData[]> {
-	const confirm = this.getNodeParameter('confirm', i, false);
-	if (confirm !== true) {
-		throw new NodeOperationError(
-			this.getNode(),
-			'Clear Domain Statistics is irreversible. Enable "Confirm" to proceed.',
-			{ itemIndex: i },
-		);
-	}
-	const domainId = resolveDomainId(this.getNodeParameter('domain', i));
-
-	const response = await statsRequest.call(this, {
-		method: 'DELETE',
-		path: `/domain/${domainId}/statistics`,
-		resource: 'domain',
-		itemIndex: i,
-	});
-	return this.helpers.returnJsonArray({ success: true, domainId, ...unwrapOrSuccess(response) });
-}
-
 async function getLinkStatistics(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
 	const { period, tz, filters, hasFilters } = commonParams.call(this, i);
 	const options = this.getNodeParameter('options', i, {}) as {
@@ -279,11 +236,9 @@ async function getLinkTopValues(this: IExecuteFunctions, i: number): Promise<INo
 }
 
 export const statisticsHandlers: Record<string, OperationEntry> = {
-	clearDomainStatistics: { kind: 'item', run: clearDomainStatistics },
 	getDomainStatistics: { kind: 'item', run: getDomainStatistics },
 	getDomainStatisticsByInterval: { kind: 'item', run: getDomainStatisticsByInterval },
 	getDomainTopValues: { kind: 'item', run: getDomainTopValues },
-	getDomainTopValuesByInterval: { kind: 'item', run: getDomainTopValuesByInterval },
 	getLinkClicks: { kind: 'item', run: getLinkClicks },
 	getLinkStatistics: { kind: 'item', run: getLinkStatistics },
 	getLinkStatisticsByInterval: { kind: 'item', run: getLinkStatisticsByInterval },

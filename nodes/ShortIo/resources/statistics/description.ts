@@ -13,11 +13,9 @@ const show = { resource: ['statistics'] };
 const op = (...operations: string[]) => ({ ...show, operation: operations });
 
 const DOMAIN_OPS = [
-	'clearDomainStatistics',
 	'getDomainStatistics',
 	'getDomainStatisticsByInterval',
 	'getDomainTopValues',
-	'getDomainTopValuesByInterval',
 	'getLinkClicks',
 	'getRawClicks',
 ];
@@ -29,12 +27,11 @@ const PERIOD_OPS = [
 	'getDomainStatistics',
 	'getDomainStatisticsByInterval',
 	'getDomainTopValues',
-	'getDomainTopValuesByInterval',
 	'getRawClicks',
 	...LINK_OPS,
 ];
 
-const TOP_OPS = ['getDomainTopValues', 'getDomainTopValuesByInterval', 'getLinkTopValues'];
+const TOP_OPS = ['getDomainTopValues', 'getLinkTopValues'];
 const LIMIT_OPS = [...TOP_OPS, 'getRawClicks'];
 const PREFIX_OPS = ['getDomainTopValues', 'getLinkTopValues'];
 const STATS_OPTION_OPS = ['getDomainStatistics', 'getLinkStatistics'];
@@ -48,12 +45,6 @@ export const statisticsDescription: INodeProperties[] = [
 		noDataExpression: true,
 		displayOptions: { show },
 		options: [
-			{
-				name: 'Clear Domain Statistics',
-				value: 'clearDomainStatistics',
-				description: 'Permanently delete all click statistics of a domain',
-				action: 'Clear domain statistics',
-			},
 			{
 				name: 'Get Domain Statistics',
 				value: 'getDomainStatistics',
@@ -71,12 +62,6 @@ export const statisticsDescription: INodeProperties[] = [
 				value: 'getDomainTopValues',
 				description: 'Get the top values of a column for a domain, ordered by clicks',
 				action: 'Get domain top values',
-			},
-			{
-				name: 'Get Domain Top Values by Interval',
-				value: 'getDomainTopValuesByInterval',
-				description: 'Get the top values of a column for a domain, per time interval',
-				action: 'Get domain top values by interval',
 			},
 			{
 				name: 'Get Link Clicks',
@@ -114,16 +99,6 @@ export const statisticsDescription: INodeProperties[] = [
 	domainLocator(op(...DOMAIN_OPS)),
 	linkLocator(op(...LINK_OPS)),
 	{
-		displayName: 'Confirm',
-		name: 'confirm',
-		type: 'boolean',
-		default: false,
-		required: true,
-		description:
-			'Whether you understand that this permanently deletes all statistics for the domain',
-		displayOptions: { show: op('clearDomainStatistics') },
-	},
-	{
 		displayName: 'Column',
 		name: 'column',
 		type: 'options',
@@ -132,15 +107,6 @@ export const statisticsDescription: INodeProperties[] = [
 		required: true,
 		description: 'The column to aggregate clicks by',
 		displayOptions: { show: op(...TOP_OPS) },
-	},
-	{
-		displayName: 'Interval',
-		name: 'interval',
-		type: 'options',
-		options: INTERVAL_OPTIONS,
-		default: 'day',
-		description: 'The time interval to group the top values by',
-		displayOptions: { show: op('getDomainTopValuesByInterval') },
 	},
 	{
 		displayName: 'Clicks Chart Interval',

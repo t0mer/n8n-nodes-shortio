@@ -8,6 +8,7 @@ import {
 	buildTimezone,
 	toStatsDate,
 } from '../nodes/ShortIo/descriptions/statistics';
+import { statisticsDescription } from '../nodes/ShortIo/resources/statistics/description';
 import { statisticsHandlers } from '../nodes/ShortIo/resources/statistics/execute';
 import type { ItemHandler } from '../shared/types';
 import { fakeCtx, type Resp } from './helpers';
@@ -36,6 +37,22 @@ function run(operation: string, exec: IExecuteFunctions, i = 0) {
 		domains: undefined as never,
 	});
 }
+
+describe('removed operations (404 Route not found on the live API)', () => {
+	it('no longer registers Clear Domain Statistics or Get Domain Top Values by Interval', () => {
+		expect(statisticsHandlers).not.toHaveProperty('clearDomainStatistics');
+		expect(statisticsHandlers).not.toHaveProperty('getDomainTopValuesByInterval');
+	});
+
+	it('drops both operations from the description options list', () => {
+		const operationField = statisticsDescription.find(
+			(f) => 'name' in f && f.name === 'operation',
+		) as { options: Array<{ value: string }> };
+		const values = operationField.options.map((o) => o.value);
+		expect(values).not.toContain('clearDomainStatistics');
+		expect(values).not.toContain('getDomainTopValuesByInterval');
+	});
+});
 
 describe('toStatsDate', () => {
 	it('keeps the calendar date of a zone-less n8n dateTime string', () => {
@@ -263,24 +280,6 @@ describe('by-interval and top operations', () => {
 		expect(items).toHaveLength(2);
 	});
 
-	it('posts top_by_interval with interval and no prefix', async () => {
-		const exec = fakeExec(
-			{ domain: DOMAIN, column: 'path', interval: 'day', limit: 10, prefix: 'ignored' },
-			[{ statusCode: 200, body: [] }],
-		);
-
-		await run('getDomainTopValuesByInterval', exec);
-
-		const [opts] = calls(exec);
-		expect(opts.url).toBe('https://statistics.short.io/statistics/domain/123/top_by_interval');
-		expect(opts.body).toEqual({
-			column: 'path',
-			interval: 'day',
-			limit: 10,
-			period: 'last30',
-			tz: 'Europe/Berlin',
-		});
-	});
 });
 
 describe('get link clicks', () => {
@@ -385,35 +384,6 @@ describe('get raw clicks', () => {
 	it('outputs a lone click object as one item', async () => {
 		const exec = fakeExec({ domain: DOMAIN }, [{ statusCode: 200, body: { path: '/a' } }]);
 		expect(await run('getRawClicks', exec)).toEqual([{ json: { path: '/a' } }]);
-	});
-});
-
-describe('clear domain statistics', () => {
-	it('throws before any HTTP call when confirm is false', async () => {
-		const exec = fakeExec({ domain: DOMAIN, confirm: false });
-		await expect(run('clearDomainStatistics', exec)).rejects.toThrow(
-			'Clear Domain Statistics is irreversible. Enable "Confirm" to proceed.',
-		);
-		expect(calls(exec)).toHaveLength(0);
-	});
-
-	it('checks confirm before validating the domain', async () => {
-		const exec = fakeExec({ domain: { __rl: true, mode: 'id', value: 'bad' } });
-		await expect(run('clearDomainStatistics', exec)).rejects.toThrow(/irreversible/);
-	});
-
-	it('sends DELETE with no body when confirmed', async () => {
-		const exec = fakeExec({ domain: DOMAIN, confirm: true }, [
-			{ statusCode: 200, body: { success: true } },
-		]);
-
-		const items = await run('clearDomainStatistics', exec);
-
-		const [opts] = calls(exec);
-		expect(opts.method).toBe('DELETE');
-		expect(opts.url).toBe('https://statistics.short.io/statistics/domain/123/statistics');
-		expect(opts.body).toBeUndefined();
-		expect(items).toEqual([{ json: { success: true, domainId: 123 } }]);
 	});
 });
 

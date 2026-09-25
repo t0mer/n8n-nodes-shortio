@@ -142,11 +142,9 @@ scoped to one domain won't list or resolve others. The credential test calls
 
 | Operation | Notes |
 |---|---|
-| Clear Domain Statistics | Irreversible; requires the **Confirm** parameter to be turned on, or the node refuses to run it |
 | Get Domain Statistics | |
 | Get Domain Statistics by Interval | |
 | Get Domain Top Values | **Column** and **Limit** (default 50) — see [Statistics notes](#statistics-notes) for the column list |
-| Get Domain Top Values by Interval | **Column**, **Interval** and **Limit** (default 50) |
 | Get Link Clicks | Identify links by ID or by path; takes an optional date range only (no Period, Timezone or Filters) |
 | Get Link Statistics | |
 | Get Link Statistics by Interval | |
@@ -229,6 +227,8 @@ These Short.io endpoints and features are intentionally not implemented:
 | Legacy `*.short.cm` hosts and numeric link IDs | Superseded by `*.short.io` hosts and `lnk_…`/`link_…` idStrings |
 | `GET /statistics/domain/{id}/paths` (Get Popular Links) | Deprecated; use **Get Domain Top Values** with **Column = Path** for the same data |
 | Conversion tracking | Short.io sends conversions with a browser-only `navigator.sendBeacon()` call to your own branded domain — there is no secret-key API endpoint for it |
+| Clear Domain Statistics (`DELETE /statistics/domain/{id}/statistics`) | Documented by Short.io but not available on the live API (returns 404 Route not found) |
+| Get Domain Top Values by Interval (`POST /statistics/domain/{id}/top_by_interval`) | Documented by Short.io but not available on the live API (returns 404 Route not found) |
 
 ## Compatibility
 
