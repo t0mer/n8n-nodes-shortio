@@ -91,7 +91,7 @@ export function linkAdditionalFields(forUpdate: boolean): INodeProperties[] {
 	);
 
 	if (!forUpdate) {
-		fields.push(folderLocator({}, 'folderId'));
+		fields.push(folderLocator({}, 'folderId', { required: false }));
 	}
 
 	fields.push(
@@ -140,7 +140,7 @@ export function linkAdditionalFields(forUpdate: boolean): INodeProperties[] {
 			hint:
 				'Same path + same original URL returns the existing link. Same path + a different ' +
 				'original URL returns a 409 conflict. No path + an original URL that already has a ' +
-				'link returns that existing link, unless Allow Duplicates is on.',
+				'link returns that existing link (Allow Duplicates is documented as a way to force a new one).',
 		},
 		{
 			displayName: 'Redirect Type',

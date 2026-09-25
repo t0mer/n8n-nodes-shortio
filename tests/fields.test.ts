@@ -41,6 +41,20 @@ describe('toIsoDate', () => {
 		expect(() => toIsoDate('not-a-date')).toThrow('Invalid date: not-a-date');
 	});
 
+	it('throws when a numeric value looks like epoch seconds (below 1e11)', () => {
+		expect(() => toIsoDate(1_700_000_000)).toThrow(
+			'Invalid date: 1700000000 looks like epoch seconds; use milliseconds or an ISO date',
+		);
+	});
+
+	it('throws when a numeric string looks like epoch seconds (below 1e11)', () => {
+		expect(() => toIsoDate('1700000000')).toThrow(/looks like epoch seconds/);
+	});
+
+	it('accepts a numeric value at or above 1e11 as epoch milliseconds', () => {
+		expect(toIsoDate(1e11)).toBe(new Date(1e11).toISOString());
+	});
+
 	it('throws on an invalid Date instance', () => {
 		expect(() => toIsoDate(new Date('not-a-date'))).toThrow(/Invalid date/);
 	});

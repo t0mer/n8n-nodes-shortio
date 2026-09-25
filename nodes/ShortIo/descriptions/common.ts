@@ -69,13 +69,17 @@ export function linkLocator(show: IDisplayOptions['show']): INodeProperties {
 }
 
 /** Folder resourceLocator: pick from the selected domain's folders, or enter a folder id. */
-export function folderLocator(show: IDisplayOptions['show'], name = 'folder'): INodeProperties {
+export function folderLocator(
+	show: IDisplayOptions['show'],
+	name = 'folder',
+	opts: { required?: boolean } = {},
+): INodeProperties {
 	return {
 		displayName: 'Folder',
 		name,
 		type: 'resourceLocator',
 		default: { mode: 'list', value: '' },
-		required: true,
+		required: opts.required ?? true,
 		description: 'The folder to operate on. Requires the Domain field above to be set.',
 		displayOptions: { show },
 		modes: [

@@ -17,9 +17,17 @@ function hasToISO(v: unknown): v is HasToISO {
 	return v !== null && typeof v === 'object' && typeof (v as HasToISO).toISO === 'function';
 }
 
+/** Below this magnitude a millisecond epoch would land before ~1973: almost certainly seconds. */
+const MIN_PLAUSIBLE_EPOCH_MS = 1e11;
+
 function dateFromEpochOrIso(raw: string | number, original: unknown): Date {
 	const asNumber = typeof raw === 'number' ? raw : Number(raw);
 	const looksLikeEpoch = typeof raw === 'number' || /^-?\d+$/.test(raw.trim());
+	if (looksLikeEpoch && Math.abs(asNumber) < MIN_PLAUSIBLE_EPOCH_MS) {
+		throw new Error(
+			`Invalid date: ${String(original)} looks like epoch seconds; use milliseconds or an ISO date`,
+		);
+	}
 	const date = looksLikeEpoch ? new Date(asNumber) : new Date(raw);
 	if (Number.isNaN(date.getTime())) {
 		throw new Error(`Invalid date: ${String(original)}`);
