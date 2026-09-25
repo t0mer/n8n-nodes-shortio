@@ -9,6 +9,7 @@ import {
 	domainDescription,
 	HANDLERS,
 	linkDescription,
+	linkCountryDescription,
 	linkOpenGraphDescription,
 	linkPermissionDescription,
 } from './resources';
@@ -37,6 +38,7 @@ export class ShortIo implements INodeType {
 				options: [
 					{ name: 'Domain', value: 'domain' },
 					{ name: 'Link', value: 'link' },
+					{ name: 'Link Country Targeting', value: 'linkCountry' },
 					{ name: 'Link OpenGraph', value: 'linkOpenGraph' },
 					{ name: 'Link Permission', value: 'linkPermission' },
 				],
@@ -44,6 +46,7 @@ export class ShortIo implements INodeType {
 			},
 			...domainDescription,
 			...linkDescription,
+			...linkCountryDescription,
 			...linkOpenGraphDescription,
 			...linkPermissionDescription,
 		],

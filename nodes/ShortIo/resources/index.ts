@@ -5,6 +5,8 @@ import { linkDescription } from './link/description';
 import { archiveMany, createMany, deleteMany, tagMany, unarchiveMany } from './link/bulk';
 import { linkHandlers } from './link/execute';
 import { generateQrCode, generateQrCodesMany } from './link/qr';
+import { linkCountryDescription } from './linkCountry/description';
+import { linkCountryHandlers } from './linkCountry/execute';
 import { linkOpenGraphDescription } from './linkOpenGraph/description';
 import { linkOpenGraphHandlers } from './linkOpenGraph/execute';
 import { linkPermissionDescription } from './linkPermission/description';
@@ -22,8 +24,15 @@ export const HANDLERS: HandlerRegistry = {
 		tagMany: { kind: 'batch', run: tagMany },
 		unarchiveMany: { kind: 'batch', run: unarchiveMany },
 	},
+	linkCountry: linkCountryHandlers,
 	linkOpenGraph: linkOpenGraphHandlers,
 	linkPermission: linkPermissionHandlers,
 };
 
-export { domainDescription, linkDescription, linkOpenGraphDescription, linkPermissionDescription };
+export {
+	domainDescription,
+	linkDescription,
+	linkCountryDescription,
+	linkOpenGraphDescription,
+	linkPermissionDescription,
+};
