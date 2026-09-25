@@ -15,6 +15,7 @@ import {
 	linkOpenGraphDescription,
 	linkPermissionDescription,
 	linkRegionDescription,
+	statisticsDescription,
 } from './resources';
 
 export class ShortIo implements INodeType {
@@ -46,6 +47,7 @@ export class ShortIo implements INodeType {
 					{ name: 'Link OpenGraph', value: 'linkOpenGraph' },
 					{ name: 'Link Permission', value: 'linkPermission' },
 					{ name: 'Link Region Targeting', value: 'linkRegion' },
+					{ name: 'Statistic', value: 'statistics' },
 				],
 				default: 'domain',
 			},
@@ -56,6 +58,7 @@ export class ShortIo implements INodeType {
 			...linkOpenGraphDescription,
 			...linkPermissionDescription,
 			...linkRegionDescription,
+			...statisticsDescription,
 		],
 	};
 
