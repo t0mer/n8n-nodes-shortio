@@ -3,6 +3,7 @@ import type { IExecuteFunctions, INodeExecutionData, INodeType, INodeTypeDescrip
 
 import { DomainCache } from '../../shared/locators';
 import type { ExecContext } from '../../shared/types';
+import { getRegions } from './methods/loadOptions';
 import { searchDomains, searchFolders } from './methods/listSearch';
 import { runOperations } from './router';
 import {
@@ -12,6 +13,7 @@ import {
 	linkCountryDescription,
 	linkOpenGraphDescription,
 	linkPermissionDescription,
+	linkRegionDescription,
 } from './resources';
 
 export class ShortIo implements INodeType {
@@ -41,6 +43,7 @@ export class ShortIo implements INodeType {
 					{ name: 'Link Country Targeting', value: 'linkCountry' },
 					{ name: 'Link OpenGraph', value: 'linkOpenGraph' },
 					{ name: 'Link Permission', value: 'linkPermission' },
+					{ name: 'Link Region Targeting', value: 'linkRegion' },
 				],
 				default: 'domain',
 			},
@@ -49,12 +52,13 @@ export class ShortIo implements INodeType {
 			...linkCountryDescription,
 			...linkOpenGraphDescription,
 			...linkPermissionDescription,
+			...linkRegionDescription,
 		],
 	};
 
 	methods = {
 		listSearch: { searchDomains, searchFolders },
-		loadOptions: {},
+		loadOptions: { getRegions },
 	};
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {

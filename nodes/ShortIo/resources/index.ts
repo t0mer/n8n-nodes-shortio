@@ -11,6 +11,8 @@ import { linkOpenGraphDescription } from './linkOpenGraph/description';
 import { linkOpenGraphHandlers } from './linkOpenGraph/execute';
 import { linkPermissionDescription } from './linkPermission/description';
 import { linkPermissionHandlers } from './linkPermission/execute';
+import { linkRegionDescription } from './linkRegion/description';
+import { linkRegionHandlers } from './linkRegion/execute';
 
 export const HANDLERS: HandlerRegistry = {
 	domain: domainHandlers,
@@ -27,6 +29,7 @@ export const HANDLERS: HandlerRegistry = {
 	linkCountry: linkCountryHandlers,
 	linkOpenGraph: linkOpenGraphHandlers,
 	linkPermission: linkPermissionHandlers,
+	linkRegion: linkRegionHandlers,
 };
 
 export {
@@ -35,4 +38,5 @@ export {
 	linkCountryDescription,
 	linkOpenGraphDescription,
 	linkPermissionDescription,
+	linkRegionDescription,
 };
