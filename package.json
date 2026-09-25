@@ -45,9 +45,7 @@
     "n8nNodesApiVersion": 1,
     "strict": true,
     "credentials": [],
-    "nodes": [
-      "dist/nodes/Example/Example.node.js"
-    ]
+    "nodes": []
   },
   "devDependencies": {
     "@n8n/node-cli": "*",
