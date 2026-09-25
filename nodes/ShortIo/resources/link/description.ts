@@ -29,6 +29,61 @@ const originalURLField: INodeProperties = {
 // one of the fields inside Update's collection rather than a required parameter of its own.
 const updateFields = insertSorted(linkAdditionalFields(true), originalURLField);
 
+// Options shared by Generate QR Code and Generate QR Codes (Many). `Use Domain Settings` is
+// always sent to the API (default true); the rest are sent only when the user sets them.
+const qrOptions: INodeProperties[] = [
+	{
+		displayName: 'Background Color',
+		name: 'backgroundColor',
+		type: 'color',
+		default: '#FFFFFF',
+		description: "The QR code's background color. Sent to Short.io as a hex value without the leading #.",
+	},
+	{
+		displayName: 'Color',
+		name: 'color',
+		type: 'color',
+		default: '#000000',
+		description: "The QR code's foreground color. Sent to Short.io as a hex value without the leading #.",
+	},
+	{
+		displayName: 'Size',
+		name: 'size',
+		type: 'number',
+		default: 10,
+		typeOptions: { minValue: 1, maxValue: 99 },
+		description: 'The size of one QR code module, in pixels',
+	},
+	{
+		displayName: 'Type',
+		name: 'type',
+		type: 'options',
+		options: [
+			{ name: 'PNG', value: 'png' },
+			{ name: 'SVG', value: 'svg' },
+		],
+		default: 'png',
+		description: 'The image format to generate',
+	},
+	{
+		displayName: 'Use Domain Settings',
+		name: 'useDomainSettings',
+		type: 'boolean',
+		default: true,
+		description: "Whether to use the domain's configured QR code style",
+	},
+];
+
+// Generate QR Codes (Many) additionally exposes `noExcavate`, which the single QR endpoint
+// doesn't accept.
+const qrManyOptions: INodeProperties[] = insertSorted(qrOptions, {
+	displayName: 'No Excavate',
+	name: 'noExcavate',
+	type: 'boolean',
+	default: false,
+	description: 'Whether to leave the QR code modules behind a center logo intact instead of clearing space for it',
+});
+
 export const linkDescription: INodeProperties[] = [
 	{
 		displayName: 'Operation',
@@ -72,6 +127,18 @@ export const linkDescription: INodeProperties[] = [
 				value: 'deleteMany',
 				description: 'Delete many links in bulk, one per input item',
 				action: 'Delete many links',
+			},
+			{
+				name: 'Generate QR Code',
+				value: 'generateQrCode',
+				description: "Generate a link's QR code image",
+				action: 'Generate a QR code',
+			},
+			{
+				name: 'Generate QR Codes (Many)',
+				value: 'generateQrCodesMany',
+				description: 'Generate QR codes for many links in bulk, one per input item',
+				action: 'Generate many QR codes',
 			},
 			{
 				name: 'Get',
@@ -150,6 +217,8 @@ export const linkDescription: INodeProperties[] = [
 			'archiveMany',
 			'delete',
 			'deleteMany',
+			'generateQrCode',
+			'generateQrCodesMany',
 			'get',
 			'tagMany',
 			'unarchive',
@@ -157,6 +226,39 @@ export const linkDescription: INodeProperties[] = [
 			'update',
 		],
 	}),
+	{
+		displayName: 'Binary Property',
+		name: 'binaryPropertyName',
+		type: 'string',
+		default: 'data',
+		description: 'Name of the binary property to write the QR code image to',
+		displayOptions: { show: { ...show, operation: ['generateQrCode'] } },
+	},
+	{
+		displayName: 'Options',
+		name: 'options',
+		type: 'collection',
+		placeholder: 'Add Option',
+		default: {},
+		displayOptions: { show: { ...show, operation: ['generateQrCode'] } },
+		options: qrOptions,
+	},
+	domainLocator(
+		{ ...show, operation: ['generateQrCodesMany'] },
+		{
+			description:
+				"The domain every link in this batch belongs to. The API accepts one domain per Generate QR Codes (Many) call, so it's applied to every input item.",
+		},
+	),
+	{
+		displayName: 'Options',
+		name: 'options',
+		type: 'collection',
+		placeholder: 'Add Option',
+		default: {},
+		displayOptions: { show: { ...show, operation: ['generateQrCodesMany'] } },
+		options: qrManyOptions,
+	},
 	{
 		displayName: 'Tag',
 		name: 'tag',

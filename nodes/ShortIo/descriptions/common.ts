@@ -5,7 +5,7 @@ import { LINK_ID_REGEX } from '../../../shared/locators';
 /** Domain resourceLocator: pick from the account's domains, or enter a numeric domain id. */
 export function domainLocator(
 	show: IDisplayOptions['show'],
-	opts: { required?: boolean } = {},
+	opts: { required?: boolean; description?: string } = {},
 ): INodeProperties {
 	return {
 		displayName: 'Domain',
@@ -13,7 +13,7 @@ export function domainLocator(
 		type: 'resourceLocator',
 		default: { mode: 'list', value: '' },
 		required: opts.required ?? true,
-		description: 'The Short.io domain to operate on',
+		description: opts.description ?? 'The Short.io domain to operate on',
 		displayOptions: { show },
 		modes: [
 			{

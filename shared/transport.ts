@@ -41,7 +41,10 @@ export function retryDelayMs(attempt: number, retryAfter: string | undefined): n
 	return 1000 * 2 ** (attempt - 1);
 }
 
-function getHeader(headers: Record<string, string> | undefined, name: string): string | undefined {
+export function getHeader(
+	headers: Record<string, string> | undefined,
+	name: string,
+): string | undefined {
 	if (!headers) return undefined;
 	if (headers[name] !== undefined) return headers[name];
 	const lower = name.toLowerCase();

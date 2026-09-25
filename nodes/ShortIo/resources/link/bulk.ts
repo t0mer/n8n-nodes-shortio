@@ -16,16 +16,16 @@ import { shortIoRequest } from '../../../../shared/transport';
 import type { BatchHandler, ExecContext } from '../../../../shared/types';
 
 /** Output items collected per input index, flattened in index order at the end. */
-type Slots = INodeExecutionData[][];
+export type Slots = INodeExecutionData[][];
 
 const MAX_LISTED_FAILURES = 10;
 const MAX_LISTED_INDICES = 50;
 
-function newSlots(count: number): Slots {
+export function newSlots(count: number): Slots {
 	return Array.from({ length: count }, () => []);
 }
 
-function flatten(slots: Slots): INodeExecutionData[] {
+export function flatten(slots: Slots): INodeExecutionData[] {
 	return slots.flat();
 }
 
@@ -33,7 +33,7 @@ function flatten(slots: Slots): INodeExecutionData[] {
  * The continue-on-fail item for `error` at input `index`. `statusCode` is included only for an
  * HTTP error status (>= 400); a `{ success: false }` body on a 200 is not one.
  */
-function errorItem(error: unknown, index: number): INodeExecutionData {
+export function errorItem(error: unknown, index: number): INodeExecutionData {
 	const statusCode = Number((error as NodeApiError).httpCode);
 	return {
 		json: {
@@ -45,7 +45,7 @@ function errorItem(error: unknown, index: number): INodeExecutionData {
 }
 
 /** Tags `error` with `index` (wrapping non-n8n errors) so it can be thrown for that item. */
-function toItemError(
+export function toItemError(
 	this: IExecuteFunctions,
 	error: unknown,
 	index: number,
@@ -63,7 +63,7 @@ function toItemError(
  * continue-on-fail a failing item gets an error item in its slot and is skipped; otherwise the
  * first failure is thrown with its item index.
  */
-async function collect<T>(
+export async function collect<T>(
 	exec: IExecuteFunctions,
 	count: number,
 	slots: Slots,
