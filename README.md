@@ -205,7 +205,8 @@ up to 3 attempts in total, honouring the `Retry-After` header when Short.io send
 - **Period** accepts `today`, `yesterday`, `total`, `week`, `month`, `lastmonth`, `last7`,
   `last30` (default) or `custom`. Choosing **Custom** exposes **Start Date** and **End Date**.
 - **Timezone** is an IANA name (for example `Europe/Berlin`), sent as `tz`. Short.io's older
-  `tzOffset` parameter is deprecated and is never sent.
+  `tzOffset` parameter is deprecated and is never sent. Dates are interpreted in the selected
+  Timezone.
 - **Filters** (where the operation supports them) are an include/exclude pair over columns such
   as country, browser, browser version, social network, HTTP status, path, protocol, method,
   referrer host, and UTM source/medium/campaign.

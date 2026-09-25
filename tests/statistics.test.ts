@@ -6,7 +6,8 @@ import {
 	buildPeriod,
 	buildStatsFilters,
 	buildTimezone,
-	toStatsDateTime,
+	toLinkClicksInstant,
+	toStatsWallClock,
 } from '../nodes/ShortIo/descriptions/statistics';
 import { statisticsDescription } from '../nodes/ShortIo/resources/statistics/description';
 import { statisticsHandlers } from '../nodes/ShortIo/resources/statistics/execute';
@@ -54,120 +55,153 @@ describe('removed operations (404 Route not found on the live API)', () => {
 	});
 });
 
-describe('toStatsDateTime', () => {
-	// The live API rejects a zone-less date-time with a 400. September is deliberately chosen for
-	// Asia/Jerusalem: IDT (daylight saving) is +03:00 then, unlike the +02:00 winter offset (IST).
-	it("attaches the given tz's own offset to a zone-less string", () => {
-		expect(toStatsDateTime('2026-09-25T23:59:00', 'Asia/Jerusalem')).toBe(
-			'2026-09-25T23:59:00+03:00',
+describe('toStatsWallClock', () => {
+	// Live API quirk: whenever `tz` is present, the statistics API reads startDate/endDate/dt's
+	// clock digits as wall-clock time in `tz` and discards any offset the string itself carries.
+	// So a zone-less string is already the intended reading (passed through with a literal `Z`),
+	// while an offset/instant value has to be converted TO its wall-clock reading in `tz` first.
+
+	it('passes a zone-less string through unchanged, with a literal Z appended', () => {
+		expect(toStatsWallClock('2026-09-25T23:59:00', 'Asia/Jerusalem')).toBe(
+			'2026-09-25T23:59:00Z',
 		);
 	});
 
-	it('trims a zone-less string before interpreting it', () => {
-		expect(toStatsDateTime(' 2026-09-25T23:59:00 ', 'UTC')).toBe('2026-09-25T23:59:00+00:00');
+	it('trims a zone-less string before validating it', () => {
+		expect(toStatsWallClock(' 2026-09-25T23:59:00 ', 'UTC')).toBe('2026-09-25T23:59:00Z');
 	});
 
-	it('keeps a Z-suffixed string unchanged', () => {
-		expect(toStatsDateTime('2026-09-25T23:59:00.000Z', 'Asia/Jerusalem')).toBe(
-			'2026-09-25T23:59:00.000Z',
+	it('keeps fractional seconds in a zone-less string', () => {
+		expect(toStatsWallClock('2026-09-25T23:59:00.123', 'UTC')).toBe('2026-09-25T23:59:00.123Z');
+	});
+
+	it('converts an offset string to its wall-clock reading in tz (the double-shift fix)', () => {
+		// The exact live-evidence case: sending this +03:00 value straight through (the pre-fix
+		// behavior) makes the API shift it by +03:00 a second time and silently return 0 clicks.
+		expect(toStatsWallClock('2026-09-25T00:00:00+03:00', 'Asia/Jerusalem')).toBe(
+			'2026-09-25T00:00:00Z',
 		);
 	});
 
-	it('keeps an explicit-offset string unchanged, preserving the given offset', () => {
-		expect(toStatsDateTime('2026-09-25T23:59:00+02:00', 'Asia/Jerusalem')).toBe(
-			'2026-09-25T23:59:00+02:00',
+	it('converts a Z instant to its wall-clock reading in Asia/Jerusalem (+03:00 in September)', () => {
+		expect(toStatsWallClock('2026-09-24T21:00:00Z', 'Asia/Jerusalem')).toBe(
+			'2026-09-25T00:00:00Z',
 		);
 	});
 
-	it("uses a Luxon-like value's own .toISO(), keeping its offset", () => {
-		const fakeDateTime = { toISO: () => '2026-09-25T23:59:00.000+02:00' };
-		expect(toStatsDateTime(fakeDateTime, 'Asia/Jerusalem')).toBe('2026-09-25T23:59:00.000+02:00');
+	it('converts the same instant to its wall-clock reading in America/New_York (-04:00 in September)', () => {
+		expect(toStatsWallClock('2026-09-24T21:00:00Z', 'America/New_York')).toBe(
+			'2026-09-24T17:00:00Z',
+		);
 	});
 
-	it('converts a Date/epoch value via toIsoDate, same as before', () => {
-		expect(toStatsDateTime(new Date('2026-09-25T23:59:00.000Z'), 'Asia/Jerusalem')).toBe(
-			'2026-09-25T23:59:00.000Z',
+	it('converts a DST-edge instant to its wall-clock reading correctly (no ambiguity in this direction)', () => {
+		// Instant->local is always unambiguous via Intl, unlike the reverse (local->instant), which
+		// is why this direction needs no gap/ambiguous-hour resolution at all.
+		expect(toStatsWallClock('2026-03-08T06:30:00.123Z', 'America/New_York')).toBe(
+			'2026-03-08T01:30:00.123Z',
+		);
+	});
+
+	it("uses a Luxon-like value's own .toISO() as the instant to convert", () => {
+		const fakeDateTime = { toISO: () => '2026-09-24T21:00:00.000Z' };
+		expect(toStatsWallClock(fakeDateTime, 'Asia/Jerusalem')).toBe('2026-09-25T00:00:00Z');
+	});
+
+	it('converts a Date/epoch value the same way', () => {
+		expect(toStatsWallClock(new Date('2026-09-24T21:00:00.000Z'), 'Asia/Jerusalem')).toBe(
+			'2026-09-25T00:00:00Z',
 		);
 	});
 
 	it('throws on an unparseable zone-less string', () => {
-		expect(() => toStatsDateTime('not a date', 'UTC')).toThrow('Invalid date: not a date');
+		expect(() => toStatsWallClock('not a date', 'UTC')).toThrow('Invalid date: not a date');
+	});
+
+	it('throws on an invalid tz', () => {
+		expect(() => toStatsWallClock('2026-09-25T00:00:00Z', 'Not/AZone')).toThrow();
 	});
 
 	it('returns undefined for empty values', () => {
-		expect(toStatsDateTime('', 'UTC')).toBeUndefined();
-		expect(toStatsDateTime(undefined, 'UTC')).toBeUndefined();
-		expect(toStatsDateTime(null, 'UTC')).toBeUndefined();
+		expect(toStatsWallClock('', 'UTC')).toBeUndefined();
+		expect(toStatsWallClock(undefined, 'UTC')).toBeUndefined();
+		expect(toStatsWallClock(null, 'UTC')).toBeUndefined();
+	});
+});
+
+describe('toLinkClicksInstant', () => {
+	// Get Link Clicks sends no `tz` param, so unlike toStatsWallClock, an offset/Z string is a real
+	// instant with no double-shift to work around, and a zone-less string must be converted to a
+	// true instant (the opposite direction from toStatsWallClock, which does need DST resolution).
+
+	it('interprets a zone-less string as wall-clock time in tz and returns the true instant', () => {
+		expect(toLinkClicksInstant('2026-09-25T00:00:00', 'Asia/Jerusalem')).toBe(
+			'2026-09-24T21:00:00.000Z',
+		);
 	});
 
-	it('keeps fractional seconds in a zone-less string', () => {
-		expect(toStatsDateTime('2026-09-25T23:59:00.123', 'UTC')).toBe('2026-09-25T23:59:00.123+00:00');
+	it('keeps a Z/offset string unchanged as the real instant it already names', () => {
+		expect(toLinkClicksInstant('2026-09-24T21:00:00Z', 'Asia/Jerusalem')).toBe(
+			'2026-09-24T21:00:00.000Z',
+		);
+		expect(toLinkClicksInstant('2026-09-25T00:00:00+03:00', 'Asia/Jerusalem')).toBe(
+			'2026-09-24T21:00:00.000Z',
+		);
 	});
 
-	describe('DST transitions (Asia/Jerusalem: 2026-03-27 spring forward, 2026-10-25 fall back)', () => {
-		it('resolves the correct pre-transition offset just before a spring-forward gap', () => {
-			// A single naive-as-UTC offset lookup gets this wrong (picks +03:00); the real instant
-			// is 2026-03-26T23:30Z, still standard time.
-			expect(toStatsDateTime('2026-03-27T01:30:00', 'Asia/Jerusalem')).toBe(
-				'2026-03-27T01:30:00+02:00',
-			);
-		});
-
-		it('shifts forward to the later offset for a local time inside the spring-forward gap', () => {
-			// 2026-03-27T02:00-03:00 local doesn't exist in Asia/Jerusalem; documented choice is
-			// the post-transition (later) offset.
-			expect(toStatsDateTime('2026-03-27T02:30:00', 'Asia/Jerusalem')).toBe(
-				'2026-03-27T02:30:00+03:00',
-			);
-		});
-
-		it('resolves the correct post-transition offset just after the gap', () => {
-			expect(toStatsDateTime('2026-03-27T03:30:00', 'Asia/Jerusalem')).toBe(
-				'2026-03-27T03:30:00+03:00',
-			);
-		});
-
-		it('resolves to the earlier (first) occurrence for an ambiguous fall-back local time', () => {
-			// 2026-10-25T01:00-02:00 local occurs twice in Asia/Jerusalem: once at +03:00 (IDT,
-			// before the clock falls back) and once at +02:00 (IST, after). Documented choice is
-			// the earlier (first) occurrence.
-			expect(toStatsDateTime('2026-10-25T01:30:00', 'Asia/Jerusalem')).toBe(
-				'2026-10-25T01:30:00+03:00',
-			);
-		});
-
-		it('resolves +03:00 (IDT) for a plain summer date, well away from any transition', () => {
-			expect(toStatsDateTime('2026-09-25T12:00:00', 'Asia/Jerusalem')).toBe(
-				'2026-09-25T12:00:00+03:00',
-			);
-		});
-
-		it('resolves +02:00 (IST) for a plain winter date, well away from any transition', () => {
-			expect(toStatsDateTime('2026-01-15T12:00:00', 'Asia/Jerusalem')).toBe(
-				'2026-01-15T12:00:00+02:00',
-			);
-		});
+	it('shifts a spring-forward gap time forward by the gap size (not backward)', () => {
+		// Regression: an earlier version of this resolution used the post-transition offset here,
+		// which shifted the result BACKWARD (02:30 read back as 01:30) instead of forward.
+		const instant = toLinkClicksInstant('2026-03-27T02:30:00', 'Asia/Jerusalem');
+		expect(instant).toBe('2026-03-27T00:30:00.000Z');
+		// Read back in the same zone to confirm it's the documented forward shift, not backward.
+		const readback = new Intl.DateTimeFormat('en-US', {
+			timeZone: 'Asia/Jerusalem',
+			hourCycle: 'h23',
+			hour: '2-digit',
+			minute: '2-digit',
+		}).format(new Date(instant!));
+		expect(readback).toBe('03:30');
 	});
 
-	describe('DST transitions (America/New_York, negative offset: 2026-03-08 spring forward)', () => {
-		it('resolves the correct pre-transition (standard time) offset', () => {
-			expect(toStatsDateTime('2026-03-08T01:30:00', 'America/New_York')).toBe(
-				'2026-03-08T01:30:00-05:00',
-			);
-		});
+	it('shifts a spring-forward gap time forward for a negative-offset zone too', () => {
+		const instant = toLinkClicksInstant('2026-03-08T02:30:00', 'America/New_York');
+		expect(instant).toBe('2026-03-08T07:30:00.000Z');
+		const readback = new Intl.DateTimeFormat('en-US', {
+			timeZone: 'America/New_York',
+			hourCycle: 'h23',
+			hour: '2-digit',
+			minute: '2-digit',
+		}).format(new Date(instant!));
+		expect(readback).toBe('03:30');
+	});
 
-		it('shifts forward to the later offset for a local time inside the gap', () => {
-			// 2026-03-08T02:00-03:00 local doesn't exist in America/New_York.
-			expect(toStatsDateTime('2026-03-08T02:30:00', 'America/New_York')).toBe(
-				'2026-03-08T02:30:00-04:00',
-			);
-		});
+	it('resolves to the earlier occurrence for an ambiguous fall-back local time', () => {
+		expect(toLinkClicksInstant('2026-10-25T01:30:00', 'Asia/Jerusalem')).toBe(
+			'2026-10-24T22:30:00.000Z',
+		);
+	});
 
-		it('resolves the correct post-transition (daylight time) offset', () => {
-			expect(toStatsDateTime('2026-03-08T03:30:00', 'America/New_York')).toBe(
-				'2026-03-08T03:30:00-04:00',
-			);
-		});
+	it('preserves fractional seconds when converting a zone-less string', () => {
+		expect(toLinkClicksInstant('2026-09-25T00:00:00.123', 'Asia/Jerusalem')).toBe(
+			'2026-09-24T21:00:00.123Z',
+		);
+	});
+
+	it('converts a Date/epoch/Luxon-like value via toIsoDate, unchanged', () => {
+		expect(toLinkClicksInstant(new Date('2026-09-24T21:00:00.000Z'), 'Asia/Jerusalem')).toBe(
+			'2026-09-24T21:00:00.000Z',
+		);
+	});
+
+	it('throws on an unparseable zone-less string', () => {
+		expect(() => toLinkClicksInstant('not a date', 'UTC')).toThrow('Invalid date: not a date');
+	});
+
+	it('returns undefined for empty values', () => {
+		expect(toLinkClicksInstant('', 'UTC')).toBeUndefined();
+		expect(toLinkClicksInstant(undefined, 'UTC')).toBeUndefined();
+		expect(toLinkClicksInstant(null, 'UTC')).toBeUndefined();
 	});
 });
 
@@ -181,7 +215,7 @@ describe('buildPeriod', () => {
 		expect(buildPeriod(fakeExec({}), 0, 'UTC')).toEqual({ period: 'last30' });
 	});
 
-	it('sends full ISO start and end date-times for custom', () => {
+	it('converts a Z-suffixed start/end instant to its wall-clock reading in tz, marked Z', () => {
 		const exec = fakeExec({
 			period: 'custom',
 			startDate: '2026-09-01T00:00:00.000Z',
@@ -189,17 +223,17 @@ describe('buildPeriod', () => {
 		});
 		expect(buildPeriod(exec, 0, 'UTC')).toEqual({
 			period: 'custom',
-			startDate: '2026-09-01T00:00:00.000Z',
-			endDate: '2026-09-15T23:59:59.000Z',
+			startDate: '2026-09-01T00:00:00Z',
+			endDate: '2026-09-15T23:59:59Z',
 		});
 	});
 
 	it('accepts equal start and end dates', () => {
 		const exec = fakeExec({ period: 'custom', startDate: '2026-09-01', endDate: '2026-09-01' });
-		expect(buildPeriod(exec, 0, 'UTC').startDate).toBe('2026-09-01T00:00:00+00:00');
+		expect(buildPeriod(exec, 0, 'UTC').startDate).toBe('2026-09-01T00:00:00Z');
 	});
 
-	it('attaches the Timezone parameter offset to a zone-less start/end date-time', () => {
+	it('passes a zone-less start/end date-time through unchanged (already wall-clock in tz), regardless of tz', () => {
 		const exec = fakeExec({
 			period: 'custom',
 			startDate: '2026-09-25T23:59:00',
@@ -207,8 +241,8 @@ describe('buildPeriod', () => {
 		});
 		expect(buildPeriod(exec, 0, 'Asia/Jerusalem')).toEqual({
 			period: 'custom',
-			startDate: '2026-09-25T23:59:00+03:00',
-			endDate: '2026-09-26T00:00:00+03:00',
+			startDate: '2026-09-25T23:59:00Z',
+			endDate: '2026-09-26T00:00:00Z',
 		});
 	});
 
@@ -260,7 +294,7 @@ describe('buildStatsFilters', () => {
 				browsers: ['Chrome', 'Firefox'],
 				statuses: [301, 404],
 				countries: ['US', 'IL'],
-				dt: ['2026-09-01T00:00:00.000Z', '2026-09-02T00:00:00.000Z'],
+				dt: ['2026-09-01T00:00:00Z', '2026-09-02T00:00:00Z'],
 				human: true,
 			},
 			exclude: { refhosts: ['spam.example'] },
@@ -339,8 +373,8 @@ describe('get domain statistics', () => {
 		expect(opts.qs).toBeUndefined();
 		expect(opts.body).toEqual({
 			period: 'custom',
-			startDate: '2026-09-01T00:00:00+02:00',
-			endDate: '2026-09-02T00:00:00+02:00',
+			startDate: '2026-09-01T00:00:00Z',
+			endDate: '2026-09-02T00:00:00Z',
 			tz: 'Europe/Berlin',
 			clicksChartInterval: 'hour',
 			include: { paths: ['a', 'b'] },
@@ -407,7 +441,7 @@ describe('by-interval and top operations', () => {
 });
 
 describe('get link clicks', () => {
-	it("sends GET with ids CSV and optional dates in the query, in this.getTimezone()'s offset", async () => {
+	it('sends GET with ids CSV and optional dates in the query, as true instants via this.getTimezone()', async () => {
 		const exec = fakeExec(
 			{
 				domain: DOMAIN,
@@ -423,11 +457,12 @@ describe('get link clicks', () => {
 		const [opts] = calls(exec);
 		expect(opts.method).toBe('GET');
 		expect(opts.url).toBe('https://statistics.short.io/statistics/domain/123/link_clicks');
-		// fakeExec's getTimezone() is 'Europe/Berlin', +02:00 (CEST) in September.
+		// fakeExec's getTimezone() is 'Europe/Berlin', +02:00 (CEST) in September: link_clicks sends
+		// no `tz` param, so a zone-less date is converted to the true UTC instant it names.
 		expect(opts.qs).toEqual({
 			ids: 'lnk_a1,link_b2',
-			startDate: '2026-09-01T00:00:00+02:00',
-			endDate: '2026-09-10T00:00:00+02:00',
+			startDate: '2026-08-31T22:00:00.000Z',
+			endDate: '2026-09-09T22:00:00.000Z',
 		});
 		expect(items).toEqual([{ json: { lnk_a1: 4, link_b2: 0 } }]);
 	});
@@ -459,7 +494,7 @@ describe('get link clicks', () => {
 
 		const [opts] = calls(exec);
 		expect(opts.method).toBe('POST');
-		expect(opts.qs).toEqual({ startDate: '2026-09-01T00:00:00+02:00' });
+		expect(opts.qs).toEqual({ startDate: '2026-08-31T22:00:00.000Z' });
 		expect(opts.body).toEqual({
 			pathsDates: [
 				{ path: 'abc', createdAt: '2026-08-17T16:16:06.000Z' },
@@ -498,7 +533,7 @@ describe('get link clicks', () => {
 		});
 	});
 
-	it("attaches this.getTimezone()'s offset to a zone-less Created At", async () => {
+	it("converts a zone-less Created At to a true instant via this.getTimezone()", async () => {
 		const exec = fakeExec(
 			{
 				domain: DOMAIN,
@@ -512,7 +547,7 @@ describe('get link clicks', () => {
 
 		const [opts] = calls(exec);
 		expect(opts.body).toEqual({
-			pathsDates: [{ path: 'abc', createdAt: '2026-08-17T16:16:06+02:00' }],
+			pathsDates: [{ path: 'abc', createdAt: '2026-08-17T14:16:06.000Z' }],
 		});
 	});
 

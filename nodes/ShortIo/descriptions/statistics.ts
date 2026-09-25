@@ -227,6 +227,10 @@ function parseNaiveDateTime(v: string): {
 	};
 }
 
+function pad(n: number, len = 2): string {
+	return String(n).padStart(len, '0');
+}
+
 /** A full day in milliseconds: comfortably more than any single DST transition's jump, so sampling
  * an IANA zone's offset this far before and after a naive instant reliably lands outside the
  * transition itself on each side (used by {@link resolveOffsetMinutes}). */
@@ -249,9 +253,11 @@ function tzOffsetMinutesAt(tz: string, atMs: number): number {
 }
 
 /**
- * Resolves the UTC offset (in minutes) an IANA zone has for a *naive local wall-clock* time
- * (`naiveMs`: the date/time fields reinterpreted as if they were themselves a UTC instant — what
- * `Date.UTC(y, mo, d, h, mi, s)` on the parsed fields gives).
+ * Resolves the UTC offset (in minutes) to subtract from a *naive local wall-clock* time (`naiveMs`:
+ * the date/time fields reinterpreted as if they were themselves a UTC instant — what
+ * `Date.UTC(y, mo, d, h, mi, s)` on the parsed fields gives) to get the real instant it names in an
+ * IANA zone. Used only by {@link toLinkClicksInstant} — every other statistics date goes through
+ * {@link toStatsWallClock}, which needs no local-to-instant conversion at all.
  *
  * A single naive-as-UTC lookup (`tzOffsetMinutesAt(tz, naiveMs)`) picks the wrong offset for the
  * entire window before a spring-forward gap: e.g. Asia/Jerusalem's `2026-03-27T01:30` resolves to
@@ -265,8 +271,12 @@ function tzOffsetMinutesAt(tz: string, atMs: number): number {
  *   Resolves to the **earlier** of the two real instants — the first occurrence — chosen
  *   consistently regardless of the zone's offset sign.
  * - **Neither** round-trips: the local time doesn't exist (a skipped hour during a spring-forward
- *   gap). Resolves to the **later** (post-transition) offset, the "shift forward" convention most
- *   libraries use.
+ *   gap). A gap only ever occurs when the offset *increases* at the transition (clocks spring
+ *   forward), so `before` (the smaller, pre-transition offset) is subtracted the least, landing the
+ *   resulting instant *past* the transition — which reads back, in the post-transition zone, as the
+ *   requested local time shifted forward by exactly the gap's size (the "shift forward" convention
+ *   most libraries use). Using `after` here instead (an earlier bug) would subtract too much and
+ *   land the instant *before* the transition, reading back as the requested time shifted backward.
  * - **Exactly one** round-trips: that's the unambiguous answer.
  */
 function resolveOffsetMinutes(tz: string, naiveMs: number): number {
@@ -282,54 +292,104 @@ function resolveOffsetMinutes(tz: string, naiveMs: number): number {
 	if (validBefore && validAfter) return candidateBefore <= candidateAfter ? before : after;
 	if (validBefore) return before;
 	if (validAfter) return after;
-	return after; // Gap: neither local time exists; shift forward to the post-transition offset.
-}
-
-function pad(n: number, len = 2): string {
-	return String(n).padStart(len, '0');
-}
-
-/** Formats an offset in minutes east of UTC as `±hh:mm`. */
-function formatOffset(minutes: number): string {
-	const sign = minutes < 0 ? '-' : '+';
-	const abs = Math.abs(minutes);
-	return `${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+	return before; // Gap: neither exists; `before` shifts the result forward past the transition.
 }
 
 /**
- * Normalizes a date-ish value for the statistics API's date/time fields (`startDate`/`endDate`,
- * the `dt` filter range, and Get Link Clicks' `startDate`/`endDate`/`createdAt`) against `tz` (the
- * node's own resolved Timezone parameter — or `this.getTimezone()` for Get Link Clicks, which has
- * no Timezone parameter of its own). The live API returns 400 for a zone-less date-time outright;
- * it only accepts a bare date or a full date-time carrying `Z` or a `±hh:mm` offset. So a zone-less
- * string (no trailing `Z`/offset — the shape n8n's dateTime picker emits for a value typed without
- * a timezone) is interpreted in `tz`, not in whatever zone the n8n host process happens to run in
- * (which is what `toIsoDate`'s plain `new Date(...)` conversion would otherwise silently apply),
- * and sent with that zone's own offset attached (resolved via {@link resolveOffsetMinutes}, correct
- * across DST transitions). A string that already carries an explicit zone is sent unchanged,
- * preserving its given offset as-is. A `Date`, an epoch number, or a Luxon-like value exposing
- * `.toISO()` all go through `toIsoDate` as before. `''`/`null`/`undefined` become `undefined`, same
- * as `toIsoDate`.
+ * Formats a real UTC instant (`isoInstant`, e.g. from `toIsoDate`) as the wall-clock reading it has
+ * in `tz`, suffixed with a literal `Z` — not a true UTC marker; see {@link toStatsWallClock} for
+ * why the statistics API wants it that way. Milliseconds come straight off the instant (they're the
+ * same number regardless of which zone displays the instant, so no zone-aware lookup is needed for
+ * them). Throws (a native `RangeError`) if `tz` isn't a valid IANA zone name.
  */
-export function toStatsDateTime(v: unknown, tz: string): string | undefined {
+function formatWallClockInTz(isoInstant: string, tz: string): string {
+	const date = new Date(isoInstant);
+	const parts = new Intl.DateTimeFormat('en-US', {
+		timeZone: tz,
+		hourCycle: 'h23',
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit',
+		hour: '2-digit',
+		minute: '2-digit',
+		second: '2-digit',
+	}).formatToParts(date);
+	const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
+	const ms = date.getUTCMilliseconds();
+	const frac = ms > 0 ? `.${pad(ms, 3)}` : '';
+	return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}${frac}Z`;
+}
+
+/**
+ * Normalizes a date-ish value for every statistics request that sends a `tz` parameter — Custom
+ * period `startDate`/`endDate`, and the `dt` filter range. **Not** Get Link Clicks, which sends no
+ * `tz` at all (see {@link toLinkClicksInstant}).
+ *
+ * Live API quirk this works around: whenever `tz` is present, the statistics API reads
+ * `startDate`/`endDate`/`dt`'s clock digits as wall-clock time in `tz` and **discards any offset
+ * marker the string itself carries** — it does not treat an already-offset value as a resolved
+ * instant. Confirmed live: `startDate=2026-09-25T00:00:00+03:00&tz=Asia/Jerusalem` applies the
+ * `+03:00` *and* is then shifted by `tz`'s own offset again, landing the query window 3h too early
+ * and silently returning zero clicks (no error) instead of the real count. Sending the same
+ * wall-clock reading as `2026-09-25T00:00:00Z` (i.e. the intended local digits, with the offset
+ * marker stripped to a literal `Z`) with the same `tz` gives the correct result: `tz` supplies the
+ * single shift the API actually applies, and the `Z` is just this API's required marker for "here
+ * are the wall-clock digits", not a true UTC instant.
+ *
+ * So: a zone-less string (no trailing `Z`/offset) is already the intended wall-clock-in-`tz`
+ * reading — it's validated and passed through with a literal `Z` appended, no conversion needed.
+ * Anything else (an explicit `Z`/offset string, a `Date`, an epoch number, or a Luxon-like
+ * `.toISO()` value) names a real, unambiguous instant; that instant is converted to its wall-clock
+ * reading *in* `tz` (via `Intl.DateTimeFormat` — an instant has exactly one wall-clock reading in a
+ * zone, so no DST-transition disambiguation is needed in this direction, unlike the reverse) and
+ * returned the same way. `''`/`null`/`undefined` become `undefined`. Throws on unparseable input or
+ * an invalid `tz`.
+ */
+export function toStatsWallClock(v: unknown, tz: string): string | undefined {
 	if (typeof v === 'string') {
 		const trimmed = v.trim();
 		if (trimmed === '') return undefined;
 
-		if (HAS_ZONE_RE.test(trimmed)) {
-			if (Number.isNaN(Date.parse(trimmed))) {
+		if (!HAS_ZONE_RE.test(trimmed)) {
+			const parts = parseNaiveDateTime(trimmed);
+			if (!parts || Number.isNaN(Date.parse(trimmed))) {
 				throw new Error(`Invalid date: ${v}`);
 			}
-			return trimmed;
+			return `${pad(parts.y, 4)}-${pad(parts.mo)}-${pad(parts.d)}T${pad(parts.h)}:${pad(parts.mi)}:${pad(parts.s)}${parts.frac}Z`;
 		}
+	}
 
-		const parts = parseNaiveDateTime(trimmed);
-		if (!parts || Number.isNaN(Date.parse(trimmed))) {
-			throw new Error(`Invalid date: ${v}`);
+	const instant = toIsoDate(v);
+	if (instant === undefined) return undefined;
+	return formatWallClockInTz(instant, tz);
+}
+
+/**
+ * Normalizes a date-ish value to a true ISO UTC instant, for Get Link Clicks only — the one
+ * statistics operation that sends no `tz` parameter at all (confirmed absent from both its GET and
+ * POST shapes; see `docs/api/digests/statistics.md` §4), so {@link toStatsWallClock}'s "send the
+ * wall-clock digits with a literal Z" trick doesn't apply here: with no `tz` for the API to shift
+ * by, an offset/`Z` string is honoured as the real instant it names, with no double-shift to work
+ * around. A zone-less string is interpreted as wall-clock time in `tz` (the caller passes
+ * `this.getTimezone()`, since this operation has no Timezone parameter of its own) and converted to
+ * the true instant via {@link resolveOffsetMinutes}, correct across DST transitions. Anything else
+ * goes through `toIsoDate` unchanged. `''`/`null`/`undefined` become `undefined`.
+ */
+export function toLinkClicksInstant(v: unknown, tz: string): string | undefined {
+	if (typeof v === 'string') {
+		const trimmed = v.trim();
+		if (trimmed === '') return undefined;
+
+		if (!HAS_ZONE_RE.test(trimmed)) {
+			const parts = parseNaiveDateTime(trimmed);
+			if (!parts || Number.isNaN(Date.parse(trimmed))) {
+				throw new Error(`Invalid date: ${v}`);
+			}
+			const fracMs = parts.frac ? Math.round(Number(parts.frac) * 1000) : 0;
+			const naiveMs = Date.UTC(parts.y, parts.mo - 1, parts.d, parts.h, parts.mi, parts.s, fracMs);
+			const offsetMinutes = resolveOffsetMinutes(tz, naiveMs);
+			return new Date(naiveMs - offsetMinutes * 60_000).toISOString();
 		}
-		const naiveMs = Date.UTC(parts.y, parts.mo - 1, parts.d, parts.h, parts.mi, parts.s);
-		const offset = formatOffset(resolveOffsetMinutes(tz, naiveMs));
-		return `${pad(parts.y, 4)}-${pad(parts.mo)}-${pad(parts.d)}T${pad(parts.h)}:${pad(parts.mi)}:${pad(parts.s)}${parts.frac}${offset}`;
 	}
 	return toIsoDate(v);
 }
@@ -383,8 +443,8 @@ function buildFilterSet(columns: IDataObject, label: string, tz: string): IDataO
 	});
 	if (countries.length > 0) out.countries = [...new Set(countries)];
 
-	const dtStart = toStatsDateTime(columns.dtStart, tz);
-	const dtEnd = toStatsDateTime(columns.dtEnd, tz);
+	const dtStart = toStatsWallClock(columns.dtStart, tz);
+	const dtEnd = toStatsWallClock(columns.dtEnd, tz);
 	if (dtStart !== undefined || dtEnd !== undefined) {
 		if (dtStart === undefined || dtEnd === undefined) {
 			throw new Error(`${label} filter: Date Range needs both a start and an end`);
@@ -430,7 +490,7 @@ export interface PeriodFields extends IDataObject {
 
 /**
  * Reads `period` (and, for `custom`, the required `startDate`/`endDate`) for item `i`, via
- * {@link toStatsDateTime} (a bare `YYYY-MM-DD` date is rejected by neither helper, but the API
+ * {@link toStatsWallClock} (a bare `YYYY-MM-DD` date is rejected by neither helper, but the API
  * treats a bare end date as midnight at the start of that day, excluding the whole day — use a
  * full date-time). A start date after the end date is rejected before any HTTP call.
  */
@@ -438,8 +498,8 @@ export function buildPeriod(fn: IExecuteFunctions, i: number, tz: string): Perio
 	const period = fn.getNodeParameter('period', i, 'last30') as string;
 	if (period !== 'custom') return { period };
 
-	const startDate = toStatsDateTime(fn.getNodeParameter('startDate', i, ''), tz);
-	const endDate = toStatsDateTime(fn.getNodeParameter('endDate', i, ''), tz);
+	const startDate = toStatsWallClock(fn.getNodeParameter('startDate', i, ''), tz);
+	const endDate = toStatsWallClock(fn.getNodeParameter('endDate', i, ''), tz);
 	if (startDate === undefined || endDate === undefined) {
 		throw new NodeOperationError(fn.getNode(), 'Start Date and End Date are required when Period is Custom', {
 			itemIndex: i,

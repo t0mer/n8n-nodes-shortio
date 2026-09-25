@@ -16,7 +16,7 @@ import {
 	buildPeriod,
 	buildStatsFilters,
 	buildTimezone,
-	toStatsDateTime,
+	toLinkClicksInstant,
 } from '../../descriptions/statistics';
 
 const LINK_ID_RE = new RegExp(LINK_ID_REGEX);
@@ -129,8 +129,8 @@ async function getLinkClicks(this: IExecuteFunctions, i: number): Promise<INodeE
 	// Get Link Clicks has no Timezone parameter of its own.
 	const tz = this.getTimezone();
 	const dateRange = this.getNodeParameter('dateRange', i, {}) as IDataObject;
-	const startDate = toStatsDateTime(dateRange.startDate, tz);
-	const endDate = toStatsDateTime(dateRange.endDate, tz);
+	const startDate = toLinkClicksInstant(dateRange.startDate, tz);
+	const endDate = toLinkClicksInstant(dateRange.endDate, tz);
 	if (startDate !== undefined && endDate !== undefined && startDate > endDate) {
 		throw new NodeOperationError(
 			this.getNode(),
@@ -163,7 +163,7 @@ async function getLinkClicks(this: IExecuteFunctions, i: number): Promise<INodeE
 				});
 			}
 			// The API returns 400 without createdAt on every entry, so it isn't optional here.
-			const createdAt = toStatsDateTime(entry.createdAt, tz);
+			const createdAt = toLinkClicksInstant(entry.createdAt, tz);
 			if (createdAt === undefined) {
 				throw new NodeOperationError(this.getNode(), `"${rawPath}" needs a Created At`, {
 					itemIndex: i,
