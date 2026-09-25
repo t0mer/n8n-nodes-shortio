@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { paginateOffset, paginateToken } from '../shared/pagination';
+import { paginateOffset, paginateToken, paginateTokenFind } from '../shared/pagination';
 
 describe('paginateOffset', () => {
 	it('walks pages until a short page, returning all items', async () => {
@@ -94,6 +94,70 @@ describe('paginateToken', () => {
 		const items = await paginateToken(fetchPage, undefined, 150);
 
 		expect(items).toEqual([1, 2]);
+		expect(fetchPage).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe('paginateTokenFind', () => {
+	it('always requests the full pageSize, ignoring any caller-side result limit', async () => {
+		// The caller may want only a handful of results overall (e.g. a UI "Limit" of 50), but a
+		// search still has to scan every page at full size to find its one match.
+		const page1 = Array.from({ length: 150 }, (_, i) => i); // no match on page 1
+		const pages: Record<string, { items: number[]; next: string | null }> = {
+			start: { items: page1, next: 'page_b' },
+			page_b: { items: [999], next: null },
+		};
+		const fetchPage = vi.fn(async (token: string | undefined) => pages[token ?? 'start']);
+
+		const items = await paginateTokenFind(fetchPage, (n) => n === 999, 150);
+
+		expect(items).toEqual([999]);
+		expect(fetchPage).toHaveBeenCalledTimes(2);
+		expect(fetchPage).toHaveBeenNthCalledWith(1, undefined, 150);
+		expect(fetchPage).toHaveBeenNthCalledWith(2, 'page_b', 150);
+	});
+
+	it('returns as soon as a page matches, without fetching further pages', async () => {
+		const fetchPage = vi.fn(async () => ({ items: [1, 2, 3], next: 'more' }));
+
+		const items = await paginateTokenFind(fetchPage, (n) => n === 2, 150);
+
+		expect(items).toEqual([2]);
+		expect(fetchPage).toHaveBeenCalledTimes(1);
+	});
+
+	it('returns an empty array once pagination is exhausted with no match', async () => {
+		const pages: Record<string, { items: number[]; next: string | null }> = {
+			start: { items: [1, 2], next: 'page_b' },
+			page_b: { items: [3, 4], next: null },
+		};
+		const fetchPage = vi.fn(async (token: string | undefined) => pages[token ?? 'start']);
+
+		const items = await paginateTokenFind(fetchPage, (n) => n === 999, 150);
+
+		expect(items).toEqual([]);
+		expect(fetchPage).toHaveBeenCalledTimes(2);
+	});
+
+	it('stops on an empty page, as a loop guard', async () => {
+		const fetchPage = vi.fn(async () => ({ items: [] as number[], next: 'page_b' }));
+
+		const items = await paginateTokenFind(fetchPage, (n) => n === 1, 150);
+
+		expect(items).toEqual([]);
+		expect(fetchPage).toHaveBeenCalledTimes(1);
+	});
+
+	it('stops if the token repeats, as a loop guard', async () => {
+		const pages: Record<string, { items: number[]; next: string | null }> = {
+			start: { items: [1], next: 'page_b' },
+			page_b: { items: [2], next: 'page_b' },
+		};
+		const fetchPage = vi.fn(async (token: string | undefined) => pages[token ?? 'start']);
+
+		const items = await paginateTokenFind(fetchPage, (n) => n === 999, 150);
+
+		expect(items).toEqual([]);
 		expect(fetchPage).toHaveBeenCalledTimes(2);
 	});
 });

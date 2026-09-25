@@ -169,7 +169,6 @@ async function getMany(this: IExecuteFunctions, i: number): Promise<INodeExecuti
 		? await paginateTokenFind<IDataObject>(
 				fetchPage,
 				(link) => link.idString === idString || link.id === idString,
-				limit,
 				150,
 			)
 		: await paginateToken<IDataObject>(fetchPage, limit, 150);

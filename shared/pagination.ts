@@ -27,9 +27,12 @@ export async function paginateOffset<T>(
 /**
  * Like {@link paginateToken}, but stops as soon as `predicate` matches an item on a page, returning
  * just that item (or an empty array if pagination is exhausted first). For endpoints whose
- * server-side filter doesn't work, the caller fetches unfiltered pages and matches client-side;
- * this walks pages using the same `limit`/`maxPageSize` and loop guards as `paginateToken`, without
- * collecting every item into memory.
+ * server-side filter doesn't work, the caller fetches unfiltered pages and matches client-side.
+ *
+ * There is no `limit`: a search ignores the caller's own result limit for scan depth, since a
+ * match beyond it is still the one match being looked for. Every page requests the full
+ * `pageSize`, and the walk is bounded only by the same loop guards as `paginateToken` (an empty
+ * page, or a `next` token that repeats one already used).
  */
 export async function paginateTokenFind<T>(
 	fetchPage: (
@@ -37,26 +40,17 @@ export async function paginateTokenFind<T>(
 		pageSize: number,
 	) => Promise<{ items: T[]; next?: string | null }>,
 	predicate: (item: T) => boolean,
-	limit: number | undefined,
-	maxPageSize: number,
+	pageSize: number,
 ): Promise<T[]> {
 	const seenTokens = new Set<string>();
 	let token: string | undefined;
-	let fetched = 0;
 
 	for (;;) {
-		const remaining = limit !== undefined ? limit - fetched : undefined;
-		if (remaining !== undefined && remaining <= 0) break;
-		const pageSize = remaining !== undefined ? Math.min(remaining, maxPageSize) : maxPageSize;
-
 		const page = await fetchPage(token, pageSize);
 		const match = page.items.find(predicate);
 		if (match !== undefined) return [match];
 
-		fetched += page.items.length;
-
 		if (page.items.length === 0) break;
-		if (limit !== undefined && fetched >= limit) break;
 
 		const next = page.next ?? undefined;
 		if (next === undefined) break;

@@ -250,6 +250,40 @@ describe('link get many', () => {
 		expect(items[0].json).toEqual({ idString: 'link_b' });
 	});
 
+	it('finds a match on page 2 even with returnAll off and a Limit of 50, requesting full 150-item pages', async () => {
+		// Regression: the ID search must scan at full page size regardless of the UI's own result
+		// limit, or a match past that limit is missed entirely.
+		const page1 = Array.from({ length: 50 }, (_, n) => ({ idString: `link_${n}` }));
+		const exec = fakeExec(
+			{
+				domain: { __rl: true, mode: 'id', value: '5' },
+				returnAll: false,
+				limit: 50,
+				filters: { idString: 'link_target' },
+			},
+			[
+				{
+					statusCode: 200,
+					body: { count: 50, links: page1, nextPageToken: 'page_2' },
+				},
+				{
+					statusCode: 200,
+					body: { count: 1, links: [{ idString: 'link_target' }], nextPageToken: null },
+				},
+			],
+		);
+
+		const items = await run(linkHandlers.getMany, exec, 0, newCtx());
+
+		expect(exec.helpers.httpRequestWithAuthentication).toHaveBeenCalledTimes(2);
+		const [, firstOpts] = calls(exec)[0] as [string, { qs: Record<string, unknown> }];
+		const [, secondOpts] = calls(exec)[1] as [string, { qs: Record<string, unknown> }];
+		expect(firstOpts.qs).toMatchObject({ limit: 150 });
+		expect(secondOpts.qs).toMatchObject({ limit: 150, pageToken: 'page_2' });
+		expect(items).toHaveLength(1);
+		expect(items[0].json).toEqual({ idString: 'link_target' });
+	});
+
 	it('returns zero items when the ID string filter matches nothing after exhausting the pages', async () => {
 		const exec = fakeExec(
 			{
