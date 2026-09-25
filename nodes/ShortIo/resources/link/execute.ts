@@ -1,7 +1,7 @@
 import { NodeOperationError } from 'n8n-workflow';
 import type { IDataObject, IExecuteFunctions, INodeExecutionData } from 'n8n-workflow';
 
-import { buildLinkBody, compact, toIsoDate } from '../../../../shared/fields';
+import { buildLinkBody, compact, toInstant } from '../../../../shared/fields';
 import { locatorValue, resolveDomainId, resolveLinkId } from '../../../../shared/locators';
 import { paginateToken, paginateTokenFind } from '../../../../shared/pagination';
 import { shortIoRequest } from '../../../../shared/transport';
@@ -60,7 +60,7 @@ async function create(
 	const body: IDataObject = {
 		domain: domain.hostname,
 		originalURL,
-		...buildLinkBody(additionalFields),
+		...buildLinkBody(additionalFields, this.getTimezone()),
 	};
 
 	const link = (await shortIoRequest.call(this, {
@@ -138,13 +138,14 @@ async function getMany(this: IExecuteFunctions, i: number): Promise<INodeExecuti
 	const filters = this.getNodeParameter('filters', i, {}) as LinkGetManyFilters;
 
 	const domainId = resolveDomainId(domainParam);
+	const tz = this.getTimezone();
 	// Short.io's `GET /api/links` ignores the `idString` query parameter, so it's never sent; a
 	// match is found by scanning pages client-side instead (see `getMany`'s branch below).
 	const idString = filters.idString;
 	const filterQs = compact({
-		afterDate: toIsoDate(filters.afterDate),
-		beforeDate: toIsoDate(filters.beforeDate),
-		createdAt: toIsoDate(filters.createdAt),
+		afterDate: toInstant(filters.afterDate, tz),
+		beforeDate: toInstant(filters.beforeDate, tz),
+		createdAt: toInstant(filters.createdAt, tz),
 		dateSortOrder: filters.dateSortOrder,
 		folderId: filters.folderId !== undefined ? locatorValue(filters.folderId) : undefined,
 	});
@@ -179,7 +180,7 @@ async function getMany(this: IExecuteFunctions, i: number): Promise<INodeExecuti
 async function update(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
 	const linkParam = this.getNodeParameter('link', i);
 	const updateFields = this.getNodeParameter('updateFields', i, {}) as IDataObject;
-	const body = buildLinkBody(updateFields);
+	const body = buildLinkBody(updateFields, this.getTimezone());
 
 	if (Object.keys(body).length === 0) {
 		throw new NodeOperationError(this.getNode(), 'Add at least one field to update', {

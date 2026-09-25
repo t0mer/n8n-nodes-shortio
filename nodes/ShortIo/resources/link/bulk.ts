@@ -260,7 +260,10 @@ export async function createMany(
 		const additionalFields = this.getNodeParameter('additionalFields', i, {}) as IDataObject;
 
 		const domain = await ctx.domains.get(this, resolveDomainId(domainParam));
-		const link: IDataObject = { originalURL, ...buildLinkBody(additionalFields) };
+		const link: IDataObject = {
+			originalURL,
+			...buildLinkBody(additionalFields, this.getTimezone()),
+		};
 		const folderId = link.folderId as string | undefined;
 		delete link.folderId;
 

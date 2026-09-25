@@ -11,11 +11,12 @@ function newCtx(): ExecContext {
 	return { domains: new DomainCache() };
 }
 
-function fakeExec(params: Record<string, unknown>, responses: Resp[]): IExecuteFunctions {
+function fakeExec(params: Record<string, unknown>, responses: Resp[], tz?: string): IExecuteFunctions {
 	return fakeCtx(responses, {
 		getNodeParameter: (name: string, _i: number, fallback?: unknown) =>
 			params[name] !== undefined ? params[name] : fallback,
 		continueOnFail: () => false,
+		...(tz !== undefined ? { getTimezone: () => tz } : {}),
 	}) as unknown as IExecuteFunctions;
 }
 
@@ -187,7 +188,7 @@ describe('link get many', () => {
 		expect(items[0].json).toEqual({ idString: 'link_a' });
 	});
 
-	it('sends the filters collection through toIsoDate/locatorValue', async () => {
+	it('sends the filters collection through toInstant/locatorValue', async () => {
 		const exec = fakeExec(
 			{
 				domain: { __rl: true, mode: 'id', value: '5' },
@@ -216,6 +217,32 @@ describe('link get many', () => {
 			dateSortOrder: 'asc',
 			folderId: 'fld_1',
 		});
+	});
+
+	it('interprets a zone-less filter date as wall-clock time in the workflow timezone, not a fixed/host one', async () => {
+		// The bug this closes: the filters used to go through toIsoDate alone, which parses a
+		// zone-less string with `new Date(raw)` in the n8n HOST process's own timezone. Checking two
+		// different explicit workflow tz values against the same input proves the result tracks the
+		// passed tz — this sandbox's own host process happens to default to Asia/Jerusalem, so
+		// asserting only that one tz wouldn't distinguish the fix from the old host-TZ-dependent bug.
+		const runWithTz = async (tz: string) => {
+			const exec = fakeExec(
+				{
+					domain: { __rl: true, mode: 'id', value: '5' },
+					returnAll: false,
+					limit: 50,
+					filters: { afterDate: '2026-09-25T12:00:00' },
+				},
+				[{ statusCode: 200, body: { count: 0, links: [], nextPageToken: null } }],
+				tz,
+			);
+			await run(linkHandlers.getMany, exec, 0, newCtx());
+			const [, opts] = calls(exec)[0] as [string, { qs: { afterDate: string } }];
+			return opts.qs.afterDate;
+		};
+
+		expect(await runWithTz('Asia/Jerusalem')).toBe('2026-09-25T09:00:00.000Z');
+		expect(await runWithTz('America/New_York')).toBe('2026-09-25T16:00:00.000Z');
 	});
 
 	it('filters by ID string client-side across pages, never sending it as a query param', async () => {

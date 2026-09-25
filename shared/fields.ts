@@ -68,6 +68,167 @@ export function toIsoDate(v: unknown): string | undefined {
 	throw new Error(`Invalid date: ${String(v)}`);
 }
 
+/** Matches a trailing UTC `Z` or a `±hh:mm`/`±hhmm` offset at the end of a date-time string. */
+export const HAS_ZONE_RE = /(Z|[+-]\d{2}:?\d{2})$/;
+
+/** Loosely parses `YYYY-MM-DD[THH:mm[:ss[.fraction]]]` (a space is also accepted for the
+ * separator), defaulting a missing time to midnight. `frac` is the fractional-seconds part
+ * including its leading `.`, truncated to at most 3 digits (millisecond precision, matching every
+ * other timestamp this node sends), e.g. `.123456` becomes `.123`; `''` when absent. `undefined`
+ * when the shape doesn't match at all — this only checks the *shape*; an impossible calendar value
+ * (e.g. February 30) still parses here and is caught by {@link parseAndValidateNaiveDateTime}. */
+function parseNaiveDateTime(v: string): {
+	y: number;
+	mo: number;
+	d: number;
+	h: number;
+	mi: number;
+	s: number;
+	frac: string;
+} | undefined {
+	const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(\.\d+)?)?)?$/.exec(v);
+	if (!m) return undefined;
+	return {
+		y: Number(m[1]),
+		mo: Number(m[2]),
+		d: Number(m[3]),
+		h: Number(m[4] ?? '0'),
+		mi: Number(m[5] ?? '0'),
+		s: Number(m[6] ?? '0'),
+		frac: m[7] ? m[7].slice(0, 4) : '', // '.' + up to 3 digits
+	};
+}
+
+/**
+ * Parses and fully validates a naive date-time string, throwing `Invalid date: <v>` when it either
+ * doesn't match the expected shape ({@link parseNaiveDateTime} returns `undefined`) or names a
+ * calendar date/time that doesn't exist (e.g. `2026-02-30T00:00:00`). `Date.UTC` alone can't be
+ * trusted to reject the latter — it silently normalizes an out-of-range day/month/hour/etc. instead
+ * of failing (`Date.UTC(2026, 1, 30)`, February 30, quietly becomes March 2) — so this round-trips
+ * the parsed fields through it and rejects the input if the result doesn't land back on the exact
+ * same year/month/day/hour/minute/second.
+ */
+export function parseAndValidateNaiveDateTime(v: string): {
+	y: number;
+	mo: number;
+	d: number;
+	h: number;
+	mi: number;
+	s: number;
+	frac: string;
+} {
+	const parts = parseNaiveDateTime(v);
+	if (!parts) {
+		throw new Error(`Invalid date: ${v}`);
+	}
+	const check = new Date(Date.UTC(parts.y, parts.mo - 1, parts.d, parts.h, parts.mi, parts.s));
+	const roundTrips =
+		check.getUTCFullYear() === parts.y &&
+		check.getUTCMonth() === parts.mo - 1 &&
+		check.getUTCDate() === parts.d &&
+		check.getUTCHours() === parts.h &&
+		check.getUTCMinutes() === parts.mi &&
+		check.getUTCSeconds() === parts.s;
+	if (!roundTrips) {
+		throw new Error(`Invalid date: ${v}`);
+	}
+	return parts;
+}
+
+/** A full day in milliseconds: comfortably more than any single DST transition's jump, so sampling
+ * an IANA zone's offset this far before and after a naive instant reliably lands outside the
+ * transition itself on each side (used by {@link resolveOffsetMinutes}). */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Resolves the UTC offset (in minutes east of UTC) an IANA zone has at a given real UTC instant
+ * (`atMs`), via `Intl.DateTimeFormat`'s `longOffset` zone name. Luxon (the usual tool for this) has
+ * no TypeScript type declarations reachable from this project — despite being a transitive
+ * dependency of `n8n-workflow`, `tsc` fails with "Cannot find module 'luxon' or its corresponding
+ * type declarations" — so this is the fallback, and every supported Node version provides it. */
+function tzOffsetMinutesAt(tz: string, atMs: number): number {
+	const parts = new Intl.DateTimeFormat('en-US', {
+		timeZone: tz,
+		timeZoneName: 'longOffset',
+	}).formatToParts(new Date(atMs));
+	const raw = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT';
+	const m = /^GMT([+-])(\d{2}):(\d{2})$/.exec(raw);
+	if (!m) return 0;
+	return (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3]));
+}
+
+/**
+ * Resolves the UTC offset (in minutes) to subtract from a *naive local wall-clock* time (`naiveMs`:
+ * the date/time fields reinterpreted as if they were themselves a UTC instant — what
+ * `Date.UTC(y, mo, d, h, mi, s)` on the parsed fields gives) to get the real instant it names in an
+ * IANA zone. Used only by {@link toInstant}.
+ *
+ * A single naive-as-UTC lookup (`tzOffsetMinutesAt(tz, naiveMs)`) picks the wrong offset for the
+ * entire window before a spring-forward gap: e.g. Asia/Jerusalem's `2026-03-27T01:30` resolves to
+ * `+03:00` that way, but the correct answer is `+02:00` (the real instant is `2026-03-26T23:30Z`,
+ * still standard time). So this samples the zone's offset a full day before and after `naiveMs`
+ * first. If they're equal, there's no nearby transition and that's the answer. Otherwise, each
+ * sampled offset gives a candidate real UTC instant (`naiveMs` shifted back by that offset); a
+ * candidate is valid only if it round-trips — querying the zone's offset *at* that candidate
+ * instant gives back the same offset used to compute it:
+ * - **Both** candidates round-trip: the local time is ambiguous (a repeated hour during fall-back).
+ *   Resolves to the **earlier** of the two real instants — the first occurrence — chosen
+ *   consistently regardless of the zone's offset sign.
+ * - **Neither** round-trips: the local time doesn't exist (a skipped hour during a spring-forward
+ *   gap). A gap only ever occurs when the offset *increases* at the transition (clocks spring
+ *   forward), so `before` (the smaller, pre-transition offset) is subtracted the least, landing the
+ *   resulting instant *past* the transition — which reads back, in the post-transition zone, as the
+ *   requested local time shifted forward by exactly the gap's size (the "shift forward" convention
+ *   most libraries use). Using `after` here instead (an earlier bug) would subtract too much and
+ *   land the instant *before* the transition, reading back as the requested time shifted backward.
+ * - **Exactly one** round-trips: that's the unambiguous answer.
+ */
+function resolveOffsetMinutes(tz: string, naiveMs: number): number {
+	const before = tzOffsetMinutesAt(tz, naiveMs - DAY_MS);
+	const after = tzOffsetMinutesAt(tz, naiveMs + DAY_MS);
+	if (before === after) return before;
+
+	const candidateBefore = naiveMs - before * 60_000;
+	const validBefore = tzOffsetMinutesAt(tz, candidateBefore) === before;
+	const candidateAfter = naiveMs - after * 60_000;
+	const validAfter = tzOffsetMinutesAt(tz, candidateAfter) === after;
+
+	if (validBefore && validAfter) return candidateBefore <= candidateAfter ? before : after;
+	if (validBefore) return before;
+	if (validAfter) return after;
+	return before; // Gap: neither exists; `before` shifts the result forward past the transition.
+}
+
+/**
+ * Normalizes a date-ish value to a true ISO UTC instant, interpreting a zone-less string as
+ * wall-clock time in `tz` (not the n8n host process's own timezone — see below) and converting it
+ * to the true instant via {@link resolveOffsetMinutes}, correct across DST transitions. An
+ * already-zoned string (`Z`/offset), a `Date`, an epoch number, or a Luxon-like `.toISO()` value
+ * names a real, unambiguous instant already and goes through {@link toIsoDate} unchanged.
+ * `''`/`null`/`undefined` become `undefined`.
+ *
+ * Host-timezone bug this replaces: {@link toIsoDate} alone parses a zone-less string with
+ * `new Date(raw)`, which JS interprets in the **n8n host process's** timezone (`TZ` env var /
+ * system default), not the workflow's configured timezone — verified: the same zone-less string
+ * produces a different UTC instant depending on the host's `TZ`, regardless of what the workflow
+ * (or the user) intended. `tz` should always be `this.getTimezone()` (or, for the statistics
+ * resource, its already-resolved per-item override) — the workflow's own timezone — never the host's.
+ */
+export function toInstant(v: unknown, tz: string): string | undefined {
+	if (typeof v === 'string') {
+		const trimmed = v.trim();
+		if (trimmed === '') return undefined;
+
+		if (!HAS_ZONE_RE.test(trimmed)) {
+			const parts = parseAndValidateNaiveDateTime(trimmed);
+			const fracMs = parts.frac ? Math.round(Number(parts.frac) * 1000) : 0;
+			const naiveMs = Date.UTC(parts.y, parts.mo - 1, parts.d, parts.h, parts.mi, parts.s, fracMs);
+			const offsetMinutes = resolveOffsetMinutes(tz, naiveMs);
+			return new Date(naiveMs - offsetMinutes * 60_000).toISOString();
+		}
+	}
+	return toIsoDate(v);
+}
+
 /**
  * Normalizes a Tags value to a trimmed, non-empty string array, or `undefined` when there is
  * nothing to send. Accepts a comma-separated string (from the UI's plain-text field) or an array
@@ -112,15 +273,17 @@ export function compact(obj: IDataObject): IDataObject {
 /**
  * Builds a Short.io link request body from a Create/Update "additional fields" collection value:
  * normalizes the three date fields and Tags, converts `redirectType` to a number and `folderId`
- * to its plain id, strips the deprecated `id` field, then drops empty values via `compact`.
+ * to its plain id, strips the deprecated `id` field, then drops empty values via `compact`. `tz`
+ * (the caller's `this.getTimezone()`) is used to interpret a zone-less date field as wall-clock
+ * time in the workflow's timezone, via {@link toInstant} — not the n8n host process's own timezone.
  */
-export function buildLinkBody(fields: IDataObject): IDataObject {
+export function buildLinkBody(fields: IDataObject, tz: string): IDataObject {
 	const result: IDataObject = { ...fields };
 	delete result.id;
 
 	for (const dateField of LINK_DATE_FIELDS) {
 		if (dateField in result) {
-			const iso = toIsoDate(result[dateField]);
+			const iso = toInstant(result[dateField], tz);
 			if (iso === undefined) {
 				delete result[dateField];
 			} else {

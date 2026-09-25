@@ -1,7 +1,7 @@
 import { NodeOperationError } from 'n8n-workflow';
 import type { IDataObject, IExecuteFunctions, INodeExecutionData } from 'n8n-workflow';
 
-import { compact, toIsoDate, unwrapOrSuccess } from '../../../../shared/fields';
+import { compact, toInstant, unwrapOrSuccess } from '../../../../shared/fields';
 import {
 	LINK_ID_REGEX,
 	parseShortUrl,
@@ -12,13 +12,7 @@ import {
 } from '../../../../shared/locators';
 import { shortIoRequest, type ShortIoRequest } from '../../../../shared/transport';
 import type { OperationEntry } from '../../../../shared/types';
-import {
-	buildPeriod,
-	buildStatsFilters,
-	buildTimezone,
-	isAfter,
-	toLinkClicksInstant,
-} from '../../descriptions/statistics';
+import { buildPeriod, buildStatsFilters, buildTimezone, isAfter } from '../../descriptions/statistics';
 
 const LINK_ID_RE = new RegExp(LINK_ID_REGEX);
 
@@ -130,8 +124,8 @@ async function getLinkClicks(this: IExecuteFunctions, i: number): Promise<INodeE
 	// Get Link Clicks has no Timezone parameter of its own.
 	const tz = this.getTimezone();
 	const dateRange = this.getNodeParameter('dateRange', i, {}) as IDataObject;
-	const startDate = toLinkClicksInstant(dateRange.startDate, tz);
-	const endDate = toLinkClicksInstant(dateRange.endDate, tz);
+	const startDate = toInstant(dateRange.startDate, tz);
+	const endDate = toInstant(dateRange.endDate, tz);
 	if (startDate !== undefined && endDate !== undefined && isAfter(startDate, endDate)) {
 		throw new NodeOperationError(
 			this.getNode(),
@@ -164,7 +158,7 @@ async function getLinkClicks(this: IExecuteFunctions, i: number): Promise<INodeE
 				});
 			}
 			// The API returns 400 without createdAt on every entry, so it isn't optional here.
-			const createdAt = toLinkClicksInstant(entry.createdAt, tz);
+			const createdAt = toInstant(entry.createdAt, tz);
 			if (createdAt === undefined) {
 				throw new NodeOperationError(this.getNode(), `"${rawPath}" needs a Created At`, {
 					itemIndex: i,
@@ -209,8 +203,10 @@ async function getRawClicks(this: IExecuteFunctions, i: number): Promise<INodeEx
 	const limit = this.getNodeParameter('limit', i, 50) as number;
 	const options = this.getNodeParameter('options', i, {}) as IDataObject;
 	// Pagination cursors keep their full date-time: raw click `dt` values have millisecond precision.
-	const beforeDate = toIsoDate(options.beforeDate);
-	const afterDate = toIsoDate(options.afterDate);
+	// A zone-less cursor is interpreted in this request's own resolved tz (the Timezone parameter,
+	// or the workflow timezone when it's empty — see buildTimezone), matching `period`/`filters` above.
+	const beforeDate = toInstant(options.beforeDate, tz);
+	const afterDate = toInstant(options.afterDate, tz);
 	const domainId = resolveDomainId(this.getNodeParameter('domain', i));
 
 	const response = await statsRequest.call(this, {

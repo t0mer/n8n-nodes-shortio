@@ -23,6 +23,7 @@ export function fakeCtx(responses: Resp[], extra: Record<string, unknown> = {}):
 	const httpRequest = vi.fn();
 	return {
 		getNode: () => NODE,
+		getTimezone: () => 'UTC',
 		helpers: {
 			httpRequestWithAuthentication,
 			httpRequest,
