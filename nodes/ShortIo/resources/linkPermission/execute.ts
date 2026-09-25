@@ -1,7 +1,6 @@
-import { NodeOperationError } from 'n8n-workflow';
 import type { IDataObject, IExecuteFunctions, INodeExecutionData } from 'n8n-workflow';
 
-import { resolveDomainId, resolveLinkId } from '../../../../shared/locators';
+import { resolveDomainId, resolveLinkId, resolvePositiveInt } from '../../../../shared/locators';
 import { shortIoRequest } from '../../../../shared/transport';
 import type { OperationEntry } from '../../../../shared/types';
 
@@ -14,12 +13,7 @@ import type { OperationEntry } from '../../../../shared/types';
  */
 function resolveUserId(this: IExecuteFunctions, param: unknown, i: number): number {
 	const raw = String(param ?? '').trim();
-	if (!/^[1-9][0-9]*$/.test(raw)) {
-		throw new NodeOperationError(this.getNode(), `"${raw}" is not a valid user ID`, {
-			itemIndex: i,
-		});
-	}
-	return Number(raw);
+	return resolvePositiveInt.call(this, raw, 'user ID', i);
 }
 
 async function add(this: IExecuteFunctions, i: number): Promise<INodeExecutionData[]> {
@@ -56,7 +50,10 @@ async function del(this: IExecuteFunctions, i: number): Promise<INodeExecutionDa
 	});
 
 	const result: IDataObject =
-		response !== null && typeof response === 'object' && Object.keys(response as object).length > 0
+		response !== null &&
+		typeof response === 'object' &&
+		!Array.isArray(response) &&
+		Object.keys(response as object).length > 0
 			? (response as IDataObject)
 			: { success: true };
 

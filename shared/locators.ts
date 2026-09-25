@@ -52,13 +52,36 @@ export function locatorValue(param: unknown): string {
 	return String(param ?? '').trim();
 }
 
+/**
+ * Validates that `value` is a positive integer string and returns it as a `number`.
+ *
+ * Without `itemIndex` the failure throws a generic `Error` naming `label`: used outside item
+ * execution (e.g. by {@link resolveDomainId}, which listSearch methods call with no per-item
+ * context). With `itemIndex`, the failure throws a `NodeOperationError` naming the offending
+ * value, bound to the calling `IExecuteFunctions` via `.call`.
+ */
+export function resolvePositiveInt(
+	this: IExecuteFunctions | void,
+	value: string,
+	label: string,
+	itemIndex?: number,
+): number {
+	if (/^[1-9][0-9]*$/.test(value)) {
+		return Number(value);
+	}
+	if (itemIndex !== undefined) {
+		throw new NodeOperationError(
+			(this as IExecuteFunctions).getNode(),
+			`"${value}" is not a valid ${label}`,
+			{ itemIndex },
+		);
+	}
+	throw new Error(`${label} must be a positive integer`);
+}
+
 /** Parses and validates a domain id from either a resourceLocator value or a plain string/number. */
 export function resolveDomainId(param: unknown): number {
-	const raw = locatorValue(param);
-	if (!/^[1-9][0-9]*$/.test(raw)) {
-		throw new Error('Domain ID must be a positive integer');
-	}
-	return Number(raw);
+	return resolvePositiveInt(locatorValue(param), 'Domain ID');
 }
 
 /**
@@ -129,4 +152,38 @@ export async function resolveLinkId(
 		});
 	}
 	return value;
+}
+
+const COUNTRY_CODE_RE = /^[A-Z]{2}$/;
+/** ISO 3166-2 subdivision codes seen from the API are 1-3 alphanumerics (the live probe returns e.g. `CA`). */
+const REGION_CODE_RE = /^[A-Za-z0-9]{1,3}$/;
+
+/**
+ * Upper-cases and validates an ISO 3166-1 alpha-2 country code before it's interpolated into a
+ * request path or body. Rejects anything else (including a path-traversal-shaped expression
+ * value) with a `NodeOperationError`.
+ */
+export function resolveCountryCode(this: IExecuteFunctions, value: unknown, i: number): string {
+	const raw = String(value ?? '').trim().toUpperCase();
+	if (!COUNTRY_CODE_RE.test(raw)) {
+		throw new NodeOperationError(this.getNode(), `"${String(value)}" is not a valid country code`, {
+			itemIndex: i,
+		});
+	}
+	return raw;
+}
+
+/**
+ * Validates an ISO 3166-2 subdivision (region) code before it's interpolated into a request path
+ * or body. Rejects anything else (including a path-traversal-shaped expression value) with a
+ * `NodeOperationError`.
+ */
+export function resolveRegionCode(this: IExecuteFunctions, value: unknown, i: number): string {
+	const raw = String(value ?? '').trim();
+	if (!REGION_CODE_RE.test(raw)) {
+		throw new NodeOperationError(this.getNode(), `"${raw}" is not a valid region code`, {
+			itemIndex: i,
+		});
+	}
+	return raw;
 }

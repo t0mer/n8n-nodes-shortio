@@ -57,9 +57,9 @@ async function set(this: IExecuteFunctions, i: number): Promise<INodeExecutionDa
 
 	const result: IDataObject = { success: true };
 	if (response !== null && typeof response === 'object' && !Array.isArray(response)) {
-		const body = response as IDataObject;
-		if (Object.keys(body).length > 0) {
-			Object.assign(result, body);
+		const responseBody = response as IDataObject;
+		if (Object.keys(responseBody).length > 0) {
+			Object.assign(result, responseBody);
 		}
 	}
 

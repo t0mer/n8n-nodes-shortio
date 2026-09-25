@@ -36,7 +36,7 @@ const OPENGRAPH_KEYS: INodePropertyOptions[] = [
 	{ name: 'profile:gender', value: 'profile:gender' },
 	{ name: 'profile:last_name', value: 'profile:last_name' },
 	{ name: 'profile:username', value: 'profile:username' },
-	{ name: 'Site_name', value: 'site_name' },
+	{ name: 'Site Name', value: 'site_name' },
 	{ name: 'Title', value: 'title' },
 	{ name: 'twitter:app:country', value: 'twitter:app:country' },
 	{ name: 'twitter:app:ID:googleplay', value: 'twitter:app:id:googleplay' },
