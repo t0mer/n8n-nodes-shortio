@@ -6,6 +6,7 @@ import {
 	buildPeriod,
 	buildStatsFilters,
 	buildTimezone,
+	isAfter,
 	toLinkClicksInstant,
 	toStatsWallClock,
 } from '../nodes/ShortIo/descriptions/statistics';
@@ -122,6 +123,24 @@ describe('toStatsWallClock', () => {
 		expect(() => toStatsWallClock('2026-09-25T00:00:00Z', 'Not/AZone')).toThrow();
 	});
 
+	it('throws on an invalid tz even with a zone-less input (regression: the zone-less branch used to skip tz validation entirely)', () => {
+		expect(() => toStatsWallClock('2026-09-25T00:00:00', 'Not/AZone')).toThrow(
+			'Invalid timezone: Not/AZone',
+		);
+	});
+
+	it('throws on an impossible calendar date (Date.UTC silently normalizes instead of rejecting)', () => {
+		expect(() => toStatsWallClock('2026-02-30T00:00:00', 'UTC')).toThrow(
+			'Invalid date: 2026-02-30T00:00:00',
+		);
+	});
+
+	it('truncates fractional seconds to at most 3 digits', () => {
+		expect(toStatsWallClock('2026-09-25T23:59:00.123456', 'UTC')).toBe(
+			'2026-09-25T23:59:00.123Z',
+		);
+	});
+
 	it('returns undefined for empty values', () => {
 		expect(toStatsWallClock('', 'UTC')).toBeUndefined();
 		expect(toStatsWallClock(undefined, 'UTC')).toBeUndefined();
@@ -198,10 +217,38 @@ describe('toLinkClicksInstant', () => {
 		expect(() => toLinkClicksInstant('not a date', 'UTC')).toThrow('Invalid date: not a date');
 	});
 
+	it('throws on an impossible calendar date (Date.UTC silently normalizes instead of rejecting)', () => {
+		expect(() => toLinkClicksInstant('2026-02-30T00:00:00', 'UTC')).toThrow(
+			'Invalid date: 2026-02-30T00:00:00',
+		);
+	});
+
+	it('truncates fractional seconds to at most 3 digits', () => {
+		expect(toLinkClicksInstant('2026-09-25T00:00:00.123456', 'UTC')).toBe(
+			'2026-09-25T00:00:00.123Z',
+		);
+	});
+
 	it('returns undefined for empty values', () => {
 		expect(toLinkClicksInstant('', 'UTC')).toBeUndefined();
 		expect(toLinkClicksInstant(undefined, 'UTC')).toBeUndefined();
 		expect(toLinkClicksInstant(null, 'UTC')).toBeUndefined();
+	});
+});
+
+describe('isAfter', () => {
+	it('is false when a shorter fractional-second suffix would sort lexically after a longer one', () => {
+		// The exact live-evidence false positive: as strings, '...T10:00:00Z' > '...T10:00:00.5Z' is
+		// true (Z sorts after '.'), even though .5s is 500ms LATER. isAfter must compare instants.
+		expect(isAfter('2026-09-01T10:00:00Z', '2026-09-01T10:00:00.5Z')).toBe(false);
+	});
+
+	it('is true when a is a strictly later instant than b', () => {
+		expect(isAfter('2026-09-02T00:00:00Z', '2026-09-01T00:00:00Z')).toBe(true);
+	});
+
+	it('is false for equal instants', () => {
+		expect(isAfter('2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')).toBe(false);
 	});
 });
 
@@ -255,9 +302,42 @@ describe('buildPeriod', () => {
 		expect(() => buildPeriod(exec, 0, 'UTC')).toThrow(/must not be after/);
 	});
 
+	it('does not false-positive when end has a fractional second and start does not (regression: lexical > on the output strings)', () => {
+		// Pre-fix, comparing the output strings lexically flagged this as start > end, because 'Z'
+		// sorts after '.' even though the fractional value is later.
+		const exec = fakeExec({
+			period: 'custom',
+			startDate: '2026-09-01T10:00:00',
+			endDate: '2026-09-01T10:00:00.5',
+		});
+		expect(buildPeriod(exec, 0, 'UTC')).toEqual({
+			period: 'custom',
+			startDate: '2026-09-01T10:00:00Z',
+			endDate: '2026-09-01T10:00:00.5Z',
+		});
+	});
+
+	it('rejects an impossible calendar date before any HTTP call', () => {
+		const exec = fakeExec({
+			period: 'custom',
+			startDate: '2026-02-30T00:00:00',
+			endDate: '2026-09-01T00:00:00',
+		});
+		expect(() => buildPeriod(exec, 0, 'UTC')).toThrow('Invalid date: 2026-02-30T00:00:00');
+	});
+
 	it('rejects custom without both dates', () => {
 		const exec = fakeExec({ period: 'custom', startDate: '2026-09-15' });
 		expect(() => buildPeriod(exec, 0, 'UTC')).toThrow(NodeOperationError);
+	});
+
+	it('rejects an invalid tz', () => {
+		const exec = fakeExec({
+			period: 'custom',
+			startDate: '2026-09-01T00:00:00Z',
+			endDate: '2026-09-02T00:00:00Z',
+		});
+		expect(() => buildPeriod(exec, 0, 'Not/AZone')).toThrow('Invalid timezone: Not/AZone');
 	});
 });
 
@@ -268,6 +348,20 @@ describe('buildTimezone', () => {
 
 	it('falls back to the workflow timezone when empty', () => {
 		expect(buildTimezone(fakeExec({ timezone: '' }), 0)).toBe('Europe/Berlin');
+	});
+
+	it('throws on an invalid tz', () => {
+		expect(() => buildTimezone(fakeExec({ timezone: 'Not/AZone' }), 0)).toThrow(
+			'Invalid timezone: Not/AZone',
+		);
+	});
+
+	it('throws when the fallback workflow timezone itself is invalid', () => {
+		const exec = fakeCtx([], {
+			getNodeParameter: () => '',
+			getTimezone: () => 'Not/AZone',
+		}) as unknown as IExecuteFunctions;
+		expect(() => buildTimezone(exec, 0)).toThrow('Invalid timezone: Not/AZone');
 	});
 });
 
@@ -334,6 +428,29 @@ describe('buildStatsFilters', () => {
 		expect(() =>
 			buildStatsFilters({ include: { columns: { dtStart: '2026-09-01' } } }, 'UTC'),
 		).toThrow(/both a start and an end/);
+	});
+
+	it('does not false-positive when dtEnd has a fractional second and dtStart does not (regression: lexical > on the output strings)', () => {
+		const filters = buildStatsFilters(
+			{
+				include: {
+					columns: { dtStart: '2026-09-01T10:00:00', dtEnd: '2026-09-01T10:00:00.5' },
+				},
+			},
+			'UTC',
+		);
+		expect(filters).toEqual({
+			include: { dt: ['2026-09-01T10:00:00Z', '2026-09-01T10:00:00.5Z'] },
+		});
+	});
+
+	it('rejects an impossible calendar date in the date range', () => {
+		expect(() =>
+			buildStatsFilters(
+				{ include: { columns: { dtStart: '2026-02-30T00:00:00', dtEnd: '2026-09-01T00:00:00' } } },
+				'UTC',
+			),
+		).toThrow('Invalid date: 2026-02-30T00:00:00');
 	});
 });
 
@@ -575,6 +692,36 @@ describe('get link clicks', () => {
 		});
 		await expect(run('getLinkClicks', exec)).rejects.toThrow(/missing a path/);
 		expect(calls(exec)).toHaveLength(0);
+	});
+
+	it('rejects a start date after the end date', async () => {
+		const exec = fakeExec({
+			domain: DOMAIN,
+			identifyBy: 'id',
+			linkIds: 'lnk_a1',
+			dateRange: { startDate: '2026-09-10T00:00:00Z', endDate: '2026-09-01T00:00:00Z' },
+		});
+		await expect(run('getLinkClicks', exec)).rejects.toThrow(/must not be after/);
+		expect(calls(exec)).toHaveLength(0);
+	});
+
+	it('does not false-positive when end has a fractional second and start does not (regression: lexical > on instant strings)', async () => {
+		const exec = fakeExec(
+			{
+				domain: DOMAIN,
+				identifyBy: 'id',
+				linkIds: 'lnk_a1',
+				dateRange: { startDate: '2026-09-01T10:00:00Z', endDate: '2026-09-01T10:00:00.5Z' },
+			},
+			[{ statusCode: 200, body: { lnk_a1: 1 } }],
+		);
+		await run('getLinkClicks', exec);
+		const [opts] = calls(exec);
+		expect(opts.qs).toEqual({
+			ids: 'lnk_a1',
+			startDate: '2026-09-01T10:00:00.000Z',
+			endDate: '2026-09-01T10:00:00.500Z',
+		});
 	});
 });
 

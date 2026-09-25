@@ -203,8 +203,10 @@ const HAS_ZONE_RE = /(Z|[+-]\d{2}:?\d{2})$/;
 
 /** Loosely parses `YYYY-MM-DD[THH:mm[:ss[.fraction]]]` (a space is also accepted for the
  * separator), defaulting a missing time to midnight. `frac` is the fractional-seconds part
- * including its leading `.` (e.g. `.123`), or `''` when absent — kept verbatim so it survives into
- * the formatted output. `undefined` when the shape doesn't match at all. */
+ * including its leading `.`, truncated to at most 3 digits (millisecond precision, matching every
+ * other timestamp this node sends), e.g. `.123456` becomes `.123`; `''` when absent. `undefined`
+ * when the shape doesn't match at all — this only checks the *shape*; an impossible calendar value
+ * (e.g. February 30) still parses here and is caught by {@link parseAndValidateNaiveDateTime}. */
 function parseNaiveDateTime(v: string): {
 	y: number;
 	mo: number;
@@ -223,12 +225,74 @@ function parseNaiveDateTime(v: string): {
 		h: Number(m[4] ?? '0'),
 		mi: Number(m[5] ?? '0'),
 		s: Number(m[6] ?? '0'),
-		frac: m[7] ?? '',
+		frac: m[7] ? m[7].slice(0, 4) : '', // '.' + up to 3 digits
 	};
+}
+
+/**
+ * Parses and fully validates a naive date-time string, throwing `Invalid date: <v>` when it either
+ * doesn't match the expected shape ({@link parseNaiveDateTime} returns `undefined`) or names a
+ * calendar date/time that doesn't exist (e.g. `2026-02-30T00:00:00`). `Date.UTC` alone can't be
+ * trusted to reject the latter — it silently normalizes an out-of-range day/month/hour/etc. instead
+ * of failing (`Date.UTC(2026, 1, 30)`, February 30, quietly becomes March 2) — so this round-trips
+ * the parsed fields through it and rejects the input if the result doesn't land back on the exact
+ * same year/month/day/hour/minute/second.
+ */
+function parseAndValidateNaiveDateTime(v: string): {
+	y: number;
+	mo: number;
+	d: number;
+	h: number;
+	mi: number;
+	s: number;
+	frac: string;
+} {
+	const parts = parseNaiveDateTime(v);
+	if (!parts) {
+		throw new Error(`Invalid date: ${v}`);
+	}
+	const check = new Date(Date.UTC(parts.y, parts.mo - 1, parts.d, parts.h, parts.mi, parts.s));
+	const roundTrips =
+		check.getUTCFullYear() === parts.y &&
+		check.getUTCMonth() === parts.mo - 1 &&
+		check.getUTCDate() === parts.d &&
+		check.getUTCHours() === parts.h &&
+		check.getUTCMinutes() === parts.mi &&
+		check.getUTCSeconds() === parts.s;
+	if (!roundTrips) {
+		throw new Error(`Invalid date: ${v}`);
+	}
+	return parts;
 }
 
 function pad(n: number, len = 2): string {
 	return String(n).padStart(len, '0');
+}
+
+/** Throws `Invalid timezone: <tz>` if `tz` isn't a name `Intl` recognizes as a valid IANA zone. */
+function assertValidTz(tz: string): void {
+	let valid = true;
+	try {
+		Intl.DateTimeFormat('en-US', { timeZone: tz });
+	} catch {
+		valid = false;
+	}
+	if (!valid) {
+		throw new Error(`Invalid timezone: ${tz}`);
+	}
+}
+
+/**
+ * Whether date-time string `a` names a later instant than `b`. Compares parsed milliseconds, not
+ * the strings themselves: a lexical comparison breaks on differing fractional-second width (e.g.
+ * `'…T10:00:00Z' > '…T10:00:00.5Z'` is `true` as strings — wrong, since `.5` is later — because `Z`
+ * sorts after `.`) and isn't meaningful across differing offset notations either. `toStatsWallClock`
+ * output is always a wall-clock reading with a literal `Z`; `Date.parse` still gives a consistent
+ * ordering for it because both sides are parsed the same (pseudo-UTC) way — the fictional zone
+ * cancels out in a comparison between two values that both use it for the same real `tz`.
+ */
+export function isAfter(a: string, b: string): boolean {
+	return Date.parse(a) > Date.parse(b);
 }
 
 /** A full day in milliseconds: comfortably more than any single DST transition's jump, so sampling
@@ -337,24 +401,24 @@ function formatWallClockInTz(isoInstant: string, tz: string): string {
  * are the wall-clock digits", not a true UTC instant.
  *
  * So: a zone-less string (no trailing `Z`/offset) is already the intended wall-clock-in-`tz`
- * reading — it's validated and passed through with a literal `Z` appended, no conversion needed.
- * Anything else (an explicit `Z`/offset string, a `Date`, an epoch number, or a Luxon-like
- * `.toISO()` value) names a real, unambiguous instant; that instant is converted to its wall-clock
- * reading *in* `tz` (via `Intl.DateTimeFormat` — an instant has exactly one wall-clock reading in a
- * zone, so no DST-transition disambiguation is needed in this direction, unlike the reverse) and
- * returned the same way. `''`/`null`/`undefined` become `undefined`. Throws on unparseable input or
- * an invalid `tz`.
+ * reading — its shape and calendar validity are checked and it's passed through with a literal `Z`
+ * appended, no conversion needed (though `tz` is still validated up front, since this branch alone
+ * has nothing else that would reject an invalid one). Anything else (an explicit `Z`/offset string,
+ * a `Date`, an epoch number, or a Luxon-like `.toISO()` value) names a real, unambiguous instant;
+ * that instant is converted to its wall-clock reading *in* `tz` (via `Intl.DateTimeFormat` — an
+ * instant has exactly one wall-clock reading in a zone, so no DST-transition disambiguation is
+ * needed in this direction, unlike the reverse) and returned the same way. `''`/`null`/`undefined`
+ * become `undefined`. Throws on unparseable/impossible input or an invalid `tz`.
  */
 export function toStatsWallClock(v: unknown, tz: string): string | undefined {
+	assertValidTz(tz);
+
 	if (typeof v === 'string') {
 		const trimmed = v.trim();
 		if (trimmed === '') return undefined;
 
 		if (!HAS_ZONE_RE.test(trimmed)) {
-			const parts = parseNaiveDateTime(trimmed);
-			if (!parts || Number.isNaN(Date.parse(trimmed))) {
-				throw new Error(`Invalid date: ${v}`);
-			}
+			const parts = parseAndValidateNaiveDateTime(trimmed);
 			return `${pad(parts.y, 4)}-${pad(parts.mo)}-${pad(parts.d)}T${pad(parts.h)}:${pad(parts.mi)}:${pad(parts.s)}${parts.frac}Z`;
 		}
 	}
@@ -381,10 +445,7 @@ export function toLinkClicksInstant(v: unknown, tz: string): string | undefined 
 		if (trimmed === '') return undefined;
 
 		if (!HAS_ZONE_RE.test(trimmed)) {
-			const parts = parseNaiveDateTime(trimmed);
-			if (!parts || Number.isNaN(Date.parse(trimmed))) {
-				throw new Error(`Invalid date: ${v}`);
-			}
+			const parts = parseAndValidateNaiveDateTime(trimmed);
 			const fracMs = parts.frac ? Math.round(Number(parts.frac) * 1000) : 0;
 			const naiveMs = Date.UTC(parts.y, parts.mo - 1, parts.d, parts.h, parts.mi, parts.s, fracMs);
 			const offsetMinutes = resolveOffsetMinutes(tz, naiveMs);
@@ -449,7 +510,7 @@ function buildFilterSet(columns: IDataObject, label: string, tz: string): IDataO
 		if (dtStart === undefined || dtEnd === undefined) {
 			throw new Error(`${label} filter: Date Range needs both a start and an end`);
 		}
-		if (dtStart > dtEnd) {
+		if (isAfter(dtStart, dtEnd)) {
 			throw new Error(`${label} filter: Date Range Start must not be after Date Range End`);
 		}
 		out.dt = [dtStart, dtEnd];
@@ -490,9 +551,9 @@ export interface PeriodFields extends IDataObject {
 
 /**
  * Reads `period` (and, for `custom`, the required `startDate`/`endDate`) for item `i`, via
- * {@link toStatsWallClock} (a bare `YYYY-MM-DD` date is rejected by neither helper, but the API
- * treats a bare end date as midnight at the start of that day, excluding the whole day — use a
- * full date-time). A start date after the end date is rejected before any HTTP call.
+ * {@link toStatsWallClock}. A bare `YYYY-MM-DD` date is accepted, but the API treats a bare end
+ * date as midnight at the start of that day, excluding the whole day — use a full date-time for
+ * End Date. A start date after the end date is rejected before any HTTP call.
  */
 export function buildPeriod(fn: IExecuteFunctions, i: number, tz: string): PeriodFields {
 	const period = fn.getNodeParameter('period', i, 'last30') as string;
@@ -505,7 +566,7 @@ export function buildPeriod(fn: IExecuteFunctions, i: number, tz: string): Perio
 			itemIndex: i,
 		});
 	}
-	if (startDate > endDate) {
+	if (isAfter(startDate, endDate)) {
 		throw new NodeOperationError(fn.getNode(), `Start Date (${startDate}) must not be after End Date (${endDate})`, {
 			itemIndex: i,
 		});
@@ -513,8 +574,13 @@ export function buildPeriod(fn: IExecuteFunctions, i: number, tz: string): Perio
 	return { period, startDate, endDate };
 }
 
-/** Reads `timezone` for item `i`, falling back to the workflow timezone when empty. */
+/**
+ * Reads `timezone` for item `i`, falling back to the workflow timezone when empty.
+ * Throws if the resolved IANA name is invalid, so a bad tz never reaches the API.
+ */
 export function buildTimezone(fn: IExecuteFunctions, i: number): string {
 	const tz = String(fn.getNodeParameter('timezone', i, '') ?? '').trim();
-	return tz || fn.getTimezone();
+	const resolved = tz || fn.getTimezone();
+	assertValidTz(resolved);
+	return resolved;
 }

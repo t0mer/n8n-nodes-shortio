@@ -16,6 +16,7 @@ import {
 	buildPeriod,
 	buildStatsFilters,
 	buildTimezone,
+	isAfter,
 	toLinkClicksInstant,
 } from '../../descriptions/statistics';
 
@@ -131,7 +132,7 @@ async function getLinkClicks(this: IExecuteFunctions, i: number): Promise<INodeE
 	const dateRange = this.getNodeParameter('dateRange', i, {}) as IDataObject;
 	const startDate = toLinkClicksInstant(dateRange.startDate, tz);
 	const endDate = toLinkClicksInstant(dateRange.endDate, tz);
-	if (startDate !== undefined && endDate !== undefined && startDate > endDate) {
+	if (startDate !== undefined && endDate !== undefined && isAfter(startDate, endDate)) {
 		throw new NodeOperationError(
 			this.getNode(),
 			`Start Date (${startDate}) must not be after End Date (${endDate})`,
