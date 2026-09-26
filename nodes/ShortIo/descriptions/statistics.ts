@@ -1,7 +1,7 @@
 import { NodeOperationError } from 'n8n-workflow';
 import type { IDataObject, IDisplayOptions, IExecuteFunctions, INodeProperties } from 'n8n-workflow';
 
-import { HAS_ZONE_RE, parseAndValidateNaiveDateTime, toIsoDate } from '../../../shared/fields';
+import { NAIVE_DATETIME_RE, parseAndValidateNaiveDateTime, toIsoDate } from '../../../shared/fields';
 import { COUNTRY_CODE_RE } from '../../../shared/locators';
 import { COUNTRY_OPTIONS } from '../countries';
 
@@ -270,15 +270,23 @@ function formatWallClockInTz(isoInstant: string, tz: string): string {
  * single shift the API actually applies, and the `Z` is just this API's required marker for "here
  * are the wall-clock digits", not a true UTC instant.
  *
- * So: a zone-less string (no trailing `Z`/offset) is already the intended wall-clock-in-`tz`
+ * So: only a string matching `shared/fields.ts`'s `NAIVE_DATETIME_RE` (the exact naive
+ * `YYYY-MM-DD[THH:mm[:ss[.fff]]]` shape, no zone) is already the intended wall-clock-in-`tz`
  * reading — its shape and calendar validity are checked and it's passed through with a literal `Z`
  * appended, no conversion needed (though `tz` is still validated up front, since this branch alone
- * has nothing else that would reject an invalid one). Anything else (an explicit `Z`/offset string,
- * a `Date`, an epoch number, or a Luxon-like `.toISO()` value) names a real, unambiguous instant;
- * that instant is converted to its wall-clock reading *in* `tz` (via `Intl.DateTimeFormat` — an
- * instant has exactly one wall-clock reading in a zone, so no DST-transition disambiguation is
- * needed in this direction, unlike the reverse) and returned the same way. `''`/`null`/`undefined`
- * become `undefined`. Throws on unparseable/impossible input or an invalid `tz`.
+ * has nothing else that would reject an invalid one). **Everything else** — an explicit `Z`/offset
+ * string in any form, an epoch-ms/seconds numeric string, an RFC 2822 or other non-ISO string, a
+ * `Date`, a raw epoch number, or a Luxon-like `.toISO()` value — goes through `toIsoDate` first
+ * (unchanged, including its rejections) to get a real, unambiguous instant; that instant is then
+ * converted to its wall-clock reading *in* `tz` (via `Intl.DateTimeFormat` — an instant has exactly
+ * one wall-clock reading in a zone, so no DST-transition disambiguation is needed in this
+ * direction, unlike the reverse) and returned the same way. `''`/`null`/`undefined` become
+ * `undefined`. Throws on unparseable/impossible input or an invalid `tz`.
+ *
+ * Uses the same positive `NAIVE_DATETIME_RE` test as `shared/fields.ts`'s `toInstant`, for the same
+ * reason: testing only for the *absence* of a trailing `Z`/offset (an earlier version of this
+ * function) wrongly routes a numeric epoch-ms string like `'1758801600000'` into the naive-parse
+ * path, where it throws instead of falling through to `toIsoDate` as it always used to.
  */
 export function toStatsWallClock(v: unknown, tz: string): string | undefined {
 	assertValidTz(tz);
@@ -287,7 +295,7 @@ export function toStatsWallClock(v: unknown, tz: string): string | undefined {
 		const trimmed = v.trim();
 		if (trimmed === '') return undefined;
 
-		if (!HAS_ZONE_RE.test(trimmed)) {
+		if (NAIVE_DATETIME_RE.test(trimmed)) {
 			const parts = parseAndValidateNaiveDateTime(trimmed);
 			return `${pad(parts.y, 4)}-${pad(parts.mo)}-${pad(parts.d)}T${pad(parts.h)}:${pad(parts.mi)}:${pad(parts.s)}${parts.frac}Z`;
 		}

@@ -176,6 +176,35 @@ describe('toInstant', () => {
 		expect(toInstant(undefined, 'UTC')).toBeUndefined();
 		expect(toInstant(null, 'UTC')).toBeUndefined();
 	});
+
+	describe('non-naive strings delegate to toIsoDate unchanged (regression: an earlier version routed anything without a trailing Z/offset into the naive-parse path, breaking every non-ISO format toIsoDate used to accept)', () => {
+		it('accepts an epoch-ms numeric string, exactly as toIsoDate does', () => {
+			expect(toInstant('1758801600000', 'Asia/Jerusalem')).toBe(toIsoDate('1758801600000'));
+		});
+
+		it('accepts an RFC 2822 string, exactly as toIsoDate does', () => {
+			expect(toInstant('Thu, 25 Sep 2026 12:00:00 GMT', 'Asia/Jerusalem')).toBe(
+				toIsoDate('Thu, 25 Sep 2026 12:00:00 GMT'),
+			);
+		});
+
+		it("routes an hour-only offset string ('+03', missing minutes — not the naive shape) to toIsoDate, which rejects it the same way it always did", () => {
+			expect(() => toIsoDate('2026-09-25T12:00:00+03')).toThrow(/Invalid date/);
+			expect(() => toInstant('2026-09-25T12:00:00+03', 'UTC')).toThrow(/Invalid date/);
+		});
+
+		it('still throws for a seconds-scale epoch numeric string, exactly as toIsoDate does', () => {
+			expect(() => toIsoDate('1700000000')).toThrow(/looks like epoch seconds/);
+			expect(() => toInstant('1700000000', 'UTC')).toThrow(/looks like epoch seconds/);
+		});
+
+		it('a genuinely naive (zone-less) value is unaffected and still depends on the tz argument', () => {
+			expect(toInstant('2026-09-25T12:00:00', 'Asia/Jerusalem')).toBe('2026-09-25T09:00:00.000Z');
+			expect(toInstant('2026-09-25T12:00:00', 'America/New_York')).toBe(
+				'2026-09-25T16:00:00.000Z',
+			);
+		});
+	});
 });
 
 describe('normalizeTags', () => {

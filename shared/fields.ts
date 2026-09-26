@@ -68,8 +68,21 @@ export function toIsoDate(v: unknown): string | undefined {
 	throw new Error(`Invalid date: ${String(v)}`);
 }
 
-/** Matches a trailing UTC `Z` or a `±hh:mm`/`±hhmm` offset at the end of a date-time string. */
-export const HAS_ZONE_RE = /(Z|[+-]\d{2}:?\d{2})$/;
+/**
+ * Matches the *naive* `YYYY-MM-DD[THH:mm[:ss[.fraction]]]` shape (a space is also accepted for the
+ * `T`/space separator) with no trailing zone marker of any kind. This is the single, narrow test
+ * that decides whether a string is treated as wall-clock-in-`tz` (by {@link toInstant} and
+ * `toStatsWallClock`) rather than a real, already-resolved value delegated to {@link toIsoDate} —
+ * deliberately a positive match against this exact shape, not a negative "doesn't look zoned"
+ * guess: an earlier version tested only for the *absence* of a trailing `Z`/offset, which wrongly
+ * routed epoch-ms numeric strings (`'1758801600000'`), non-ISO formats (RFC 2822), and hour-only
+ * offsets (`'...+03'`, missing minutes) into the naive-parse path too, where they threw instead of
+ * falling through to `toIsoDate` as they always used to. Exported so `toStatsWallClock` (which has
+ * its own zone-less/real-instant split for the same reason, but for the opposite instant↔wall-clock
+ * direction) uses the exact same test, not a re-derived one.
+ */
+export const NAIVE_DATETIME_RE =
+	/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(\.\d+)?)?)?$/;
 
 /** Loosely parses `YYYY-MM-DD[THH:mm[:ss[.fraction]]]` (a space is also accepted for the
  * separator), defaulting a missing time to midnight. `frac` is the fractional-seconds part
@@ -86,7 +99,7 @@ function parseNaiveDateTime(v: string): {
 	s: number;
 	frac: string;
 } | undefined {
-	const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(\.\d+)?)?)?$/.exec(v);
+	const m = NAIVE_DATETIME_RE.exec(v);
 	if (!m) return undefined;
 	return {
 		y: Number(m[1]),
@@ -199,26 +212,36 @@ function resolveOffsetMinutes(tz: string, naiveMs: number): number {
 }
 
 /**
- * Normalizes a date-ish value to a true ISO UTC instant, interpreting a zone-less string as
- * wall-clock time in `tz` (not the n8n host process's own timezone — see below) and converting it
- * to the true instant via {@link resolveOffsetMinutes}, correct across DST transitions. An
- * already-zoned string (`Z`/offset), a `Date`, an epoch number, or a Luxon-like `.toISO()` value
- * names a real, unambiguous instant already and goes through {@link toIsoDate} unchanged.
- * `''`/`null`/`undefined` become `undefined`.
+ * Normalizes a date-ish value to a true ISO UTC instant. Only a string matching
+ * {@link NAIVE_DATETIME_RE} (the exact naive `YYYY-MM-DD[THH:mm[:ss[.fff]]]` shape, no zone) is
+ * treated as wall-clock time in `tz` and converted to the true instant via
+ * {@link resolveOffsetMinutes}, correct across DST transitions. **Everything else** — a `Z`/offset
+ * string in any form, an epoch-ms/seconds numeric string, an RFC 2822 or other non-ISO string, a
+ * `Date`, a raw epoch number, or a Luxon-like `.toISO()` value — delegates to {@link toIsoDate}
+ * unchanged, exactly as it always did (including its seconds-scale-epoch and invalid-date
+ * rejections). `''`/`null`/`undefined` become `undefined`.
  *
- * Host-timezone bug this replaces: {@link toIsoDate} alone parses a zone-less string with
- * `new Date(raw)`, which JS interprets in the **n8n host process's** timezone (`TZ` env var /
- * system default), not the workflow's configured timezone — verified: the same zone-less string
- * produces a different UTC instant depending on the host's `TZ`, regardless of what the workflow
- * (or the user) intended. `tz` should always be `this.getTimezone()` (or, for the statistics
- * resource, its already-resolved per-item override) — the workflow's own timezone — never the host's.
+ * Regression this guards against: an earlier version routed into the naive-parse path on the
+ * mere *absence* of a trailing `Z`/offset rather than a positive match on the naive shape, so a
+ * numeric epoch-ms string like `'1758801600000'` (no zone suffix, but not naive-ISO either) was
+ * wrongly sent through `parseAndValidateNaiveDateTime` and rejected as an "Invalid date" — breaking
+ * every caller that maps an upstream epoch/RFC-2822/hour-only-offset value into a date field
+ * through an expression.
+ *
+ * Host-timezone bug this function exists to fix in the first place: {@link toIsoDate} alone parses
+ * a zone-less string with `new Date(raw)`, which JS interprets in the **n8n host process's**
+ * timezone (`TZ` env var / system default), not the workflow's configured timezone — verified: the
+ * same zone-less string produces a different UTC instant depending on the host's `TZ`, regardless
+ * of what the workflow (or the user) intended. `tz` should always be `this.getTimezone()` (or, for
+ * the statistics resource, its already-resolved per-item override) — the workflow's own timezone —
+ * never the host's.
  */
 export function toInstant(v: unknown, tz: string): string | undefined {
 	if (typeof v === 'string') {
 		const trimmed = v.trim();
 		if (trimmed === '') return undefined;
 
-		if (!HAS_ZONE_RE.test(trimmed)) {
+		if (NAIVE_DATETIME_RE.test(trimmed)) {
 			const parts = parseAndValidateNaiveDateTime(trimmed);
 			const fracMs = parts.frac ? Math.round(Number(parts.frac) * 1000) : 0;
 			const naiveMs = Date.UTC(parts.y, parts.mo - 1, parts.d, parts.h, parts.mi, parts.s, fracMs);

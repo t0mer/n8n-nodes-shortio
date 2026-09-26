@@ -145,6 +145,26 @@ describe('toStatsWallClock', () => {
 		expect(toStatsWallClock(undefined, 'UTC')).toBeUndefined();
 		expect(toStatsWallClock(null, 'UTC')).toBeUndefined();
 	});
+
+	describe('non-naive strings delegate to toIsoDate unchanged (regression: an earlier version routed anything without a trailing Z/offset into the naive-parse path, breaking every non-ISO format toIsoDate used to accept)', () => {
+		it('accepts an epoch-ms numeric string, converting the resulting instant to its wall-clock reading in tz', () => {
+			expect(toStatsWallClock('1758801600000', 'UTC')).toBe('2025-09-25T12:00:00Z');
+		});
+
+		it('accepts an RFC 2822 string the same way', () => {
+			expect(toStatsWallClock('Thu, 25 Sep 2026 12:00:00 GMT', 'UTC')).toBe(
+				'2026-09-25T12:00:00Z',
+			);
+		});
+
+		it("routes an hour-only offset string ('+03', missing minutes — not the naive shape) to toIsoDate, which rejects it the same way it always did", () => {
+			expect(() => toStatsWallClock('2026-09-25T12:00:00+03', 'UTC')).toThrow(/Invalid date/);
+		});
+
+		it('still throws for a seconds-scale epoch numeric string, exactly as toIsoDate does', () => {
+			expect(() => toStatsWallClock('1700000000', 'UTC')).toThrow(/looks like epoch seconds/);
+		});
+	});
 });
 
 describe('isAfter', () => {
