@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026.9.1
+
+No functional changes.
+
+### Changed
+
+- Published through npm Trusted Publishing (GitHub Actions OIDC) instead of an npm access
+  token, with provenance.
+
 ## 2026.9.0
 
 Initial release.
