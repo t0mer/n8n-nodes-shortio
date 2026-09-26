@@ -10,8 +10,8 @@ clicks.
 > This package is unofficial. It is not affiliated with, endorsed by, or supported by Short.io.
 > "Short.io" is used only to describe what the node connects to.
 
-> **Status:** All planned operations are implemented. The first npm release has not been published
-> yet — see [Installation](#installation).
+> **Status:** Version 2026.9.0. Unofficial community node; see [Excluded](#excluded) for API
+> features that are not covered.
 
 ## Demo
 
@@ -34,8 +34,6 @@ clicks.
 - [Version history](#version-history)
 
 ## Installation
-
-> Not published to npm yet — these steps will work once the first version ships (see Status).
 
 On a self-hosted n8n instance:
 
@@ -266,8 +264,11 @@ for the full reference this node is built against.
 
 ## Version history
 
-Nothing has been released yet. Versions will follow `YYYY.M.PATCH`, and the first release is
-planned as `2026.9.x`.
+Versions follow `YYYY.M.PATCH`, set from the git tag at publish time.
+
+- **2026.9.0** — Initial release: the Short.io node (Domain, Folder, Link, Link Country
+  Targeting, Link OpenGraph, Link Permission, Link Region Targeting, Statistic) and the Short.io
+  Trigger (New Link, New Click).
 
 ## License
 
