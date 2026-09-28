@@ -1,7 +1,7 @@
 {
   "name": "@t0mer/n8n-nodes-shortio",
   "version": "2026.9.0",
-  "description": "n8n community node for Short.io: links, bulk, QR, geo targeting, folders, domains, statistics, and a polling trigger.",
+  "description": "n8n community node for Short.io: create and manage branded short links in bulk, generate QR codes, set geo targeting, read click statistics, and trigger on new links or clicks.",
   "license": "MIT",
   "homepage": "https://github.com/t0mer/n8n-nodes-shortio#readme",
   "bugs": {
@@ -17,8 +17,12 @@
     "shortio",
     "short.io",
     "url-shortener",
+    "link-shortener",
     "short-links",
-    "qr-code"
+    "branded-links",
+    "qr-code",
+    "link-analytics",
+    "click-tracking"
   ],
   "author": {
     "name": "t0mer",
