@@ -1,0 +1,151 @@
+{
+	"name": "Short.io: weekly click report by email",
+	"nodes": [
+		{
+			"parameters": {
+				"rule": {
+					"interval": [
+						{
+							"field": "weeks",
+							"triggerAtDay": [1],
+							"triggerAtHour": 8
+						}
+					]
+				}
+			},
+			"id": "842bbe74-0f66-51ba-b773-f0139d18913a",
+			"name": "Every Monday 08:00",
+			"type": "n8n-nodes-base.scheduleTrigger",
+			"typeVersion": 1.2,
+			"position": [0, 0]
+		},
+		{
+			"parameters": {
+				"resource": "statistics",
+				"operation": "getDomainStatistics",
+				"domain": {
+					"__rl": true,
+					"mode": "id",
+					"value": "123456"
+				},
+				"period": "last7",
+				"timezone": "Europe/Berlin",
+				"options": {
+					"skipTops": true
+				}
+			},
+			"id": "3fdb2ff0-0ba0-5d36-8057-b551c179d1cf",
+			"name": "Domain Statistics",
+			"type": "@t0mer/n8n-nodes-shortio.shortIo",
+			"typeVersion": 1,
+			"position": [220, 0]
+		},
+		{
+			"parameters": {
+				"resource": "statistics",
+				"operation": "getDomainTopValues",
+				"domain": {
+					"__rl": true,
+					"mode": "id",
+					"value": "123456"
+				},
+				"column": "path",
+				"limit": 10,
+				"period": "last7",
+				"timezone": "Europe/Berlin"
+			},
+			"id": "73bd58d8-d8da-5f02-86ed-0c514fe77695",
+			"name": "Top 10 Links",
+			"type": "@t0mer/n8n-nodes-shortio.shortIo",
+			"typeVersion": 1,
+			"position": [440, 0]
+		},
+		{
+			"parameters": {
+				"jsCode": "// One plain-text report: domain totals plus the top links by human clicks.\nconst stats = $('Domain Statistics').first().json;\nconst top = $input.all().map((item) => item.json).filter((row) => row.column !== undefined);\nconst lines = top.map((row, i) => `${i + 1}. ${row.displayName || row.column}: ${row.score} clicks`);\nreturn [{\n  json: {\n    subject: `Short.io weekly report: ${stats.clicks ?? 0} clicks, ${stats.links ?? 0} new links`,\n    body: [\n      'Short.io weekly report (last 7 days)',\n      '',\n      `Total clicks: ${stats.clicks ?? 0} (human: ${stats.humanClicks ?? 0})`,\n      `New links: ${stats.links ?? 0}`,\n      '',\n      'Top links (human clicks):',\n      ...(lines.length ? lines : ['No clicks this week.']),\n    ].join('\\n'),\n  },\n}];"
+			},
+			"id": "2e283a78-2c2c-50be-8d2f-ff69ac120ec1",
+			"name": "Build Report",
+			"type": "n8n-nodes-base.code",
+			"typeVersion": 2,
+			"position": [660, 0]
+		},
+		{
+			"parameters": {
+				"fromEmail": "n8n@example.com",
+				"toEmail": "marketing@example.com",
+				"subject": "={{ $json.subject }}",
+				"emailFormat": "text",
+				"text": "={{ $json.body }}",
+				"options": {}
+			},
+			"id": "77c025e4-986b-573d-a7a3-978ad7404e78",
+			"name": "Send Report Email",
+			"type": "n8n-nodes-base.emailSend",
+			"typeVersion": 2.1,
+			"position": [880, 0]
+		},
+		{
+			"parameters": {
+				"content": "## Weekly click report\nEvery Monday, reads the domain's click totals for the last 7 days and its 10 most-clicked paths, then emails a summary.\n\nTotals (`clicks`) count all clicks, bots included; the top list counts human clicks only. Replace the domain ID `123456`, the timezone and the email addresses.",
+				"height": 240,
+				"width": 480
+			},
+			"id": "719493c6-cbc1-5ca1-8eef-a57c659245a1",
+			"name": "Note",
+			"type": "n8n-nodes-base.stickyNote",
+			"typeVersion": 1,
+			"position": [-60, -280]
+		}
+	],
+	"connections": {
+		"Every Monday 08:00": {
+			"main": [
+				[
+					{
+						"node": "Domain Statistics",
+						"type": "main",
+						"index": 0
+					}
+				]
+			]
+		},
+		"Domain Statistics": {
+			"main": [
+				[
+					{
+						"node": "Top 10 Links",
+						"type": "main",
+						"index": 0
+					}
+				]
+			]
+		},
+		"Top 10 Links": {
+			"main": [
+				[
+					{
+						"node": "Build Report",
+						"type": "main",
+						"index": 0
+					}
+				]
+			]
+		},
+		"Build Report": {
+			"main": [
+				[
+					{
+						"node": "Send Report Email",
+						"type": "main",
+						"index": 0
+					}
+				]
+			]
+		}
+	},
+	"pinData": {},
+	"settings": {
+		"executionOrder": "v1"
+	}
+}

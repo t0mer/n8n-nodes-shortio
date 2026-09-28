@@ -1,0 +1,78 @@
+{
+	"name": "Short.io: post new short links to Slack",
+	"nodes": [
+		{
+			"parameters": {
+				"pollTimes": {
+					"item": [
+						{
+							"mode": "everyX",
+							"value": 15,
+							"unit": "minutes"
+						}
+					]
+				},
+				"event": "newLink",
+				"domain": {
+					"__rl": true,
+					"mode": "id",
+					"value": "123456"
+				}
+			},
+			"id": "5dfb3ca2-3dcc-5f5f-a1b1-6bd0560e1aea",
+			"name": "New Short Link",
+			"type": "@t0mer/n8n-nodes-shortio.shortIoTrigger",
+			"typeVersion": 1,
+			"position": [0, 0]
+		},
+		{
+			"parameters": {
+				"select": "channel",
+				"channelId": {
+					"__rl": true,
+					"mode": "name",
+					"value": "#marketing"
+				},
+				"text": "=:link: New short link: {{ $json.shortURL }}\nTitle: {{ $json.title || '(none)' }}\nDestination: {{ $json.originalURL }}\nTags: {{ ($json.tags || []).join(', ') || '(none)' }}",
+				"otherOptions": {
+					"includeLinkToWorkflow": false,
+					"unfurl_links": false
+				}
+			},
+			"id": "34270999-f97c-5eda-9027-94bbbe6c49b7",
+			"name": "Post to Slack",
+			"type": "n8n-nodes-base.slack",
+			"typeVersion": 2.2,
+			"position": [240, 0]
+		},
+		{
+			"parameters": {
+				"content": "## New link notifications\nThe trigger polls Short.io every 15 minutes and emits one item per link created on the domain since the last poll. The first activation only records the newest link and emits nothing.\n\nReplace the domain ID `123456` and the Slack channel. Prefer Telegram? Swap the Slack node for a Telegram **Send Message** node and reuse the same text expression.",
+				"height": 240,
+				"width": 460
+			},
+			"id": "719493c6-cbc1-5ca1-8eef-a57c659245a1",
+			"name": "Note",
+			"type": "n8n-nodes-base.stickyNote",
+			"typeVersion": 1,
+			"position": [-60, -280]
+		}
+	],
+	"connections": {
+		"New Short Link": {
+			"main": [
+				[
+					{
+						"node": "Post to Slack",
+						"type": "main",
+						"index": 0
+					}
+				]
+			]
+		}
+	},
+	"pinData": {},
+	"settings": {
+		"executionOrder": "v1"
+	}
+}

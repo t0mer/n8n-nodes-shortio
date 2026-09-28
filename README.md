@@ -24,6 +24,7 @@ clicks.
 - [Credentials](#credentials)
 - [Operations](#operations)
 - [Trigger](#trigger)
+- [Example workflows](#example-workflows)
 - [Bulk operations](#bulk-operations)
 - [Rate limits](#rate-limits)
 - [Statistics notes](#statistics-notes)
@@ -172,6 +173,17 @@ See [Statistics notes](#statistics-notes) for the shared Period, Timezone and Fi
 On first activation, the trigger stores a high-water mark and emits nothing; later polls emit
 only newer items. **Fetch Test Event** (manual mode) returns the most recent matching item as a
 sample without changing the stored state.
+
+## Example workflows
+
+Import any of these from [`examples/`](examples/) with **Workflows → Import from File**. The domain ID `123456`, the spreadsheet ID, channels and email addresses are placeholders; replace them with your own (or pick your domain from the list).
+
+| File | What it does |
+|---|---|
+| [`bulk-shorten-from-google-sheets.json`](examples/bulk-shorten-from-google-sheets.json) | Reads rows from Google Sheets, shortens every URL that has no short link yet with **Create Many** (with UTM tags), and writes the short URL back to the same row. |
+| [`new-link-slack-notification.json`](examples/new-link-slack-notification.json) | Trigger: posts each newly created short link to a Slack channel. A Telegram node works the same way. |
+| [`weekly-click-report-email.json`](examples/weekly-click-report-email.json) | Every Monday, emails the domain's clicks and new links for the last 7 days plus its 10 most-clicked links. |
+| [`ai-agent-short-link-tool.json`](examples/ai-agent-short-link-tool.json) | An AI Agent that uses the node as two tools: one creates short links, the other reports a link's clicks. |
 
 ## Bulk operations
 

@@ -1,0 +1,138 @@
+{
+	"name": "Short.io: AI agent that creates and reports on short links",
+	"nodes": [
+		{
+			"parameters": {
+				"options": {}
+			},
+			"id": "699e1d91-827f-5587-8c20-a72e11ebfe45",
+			"name": "When Chat Message Received",
+			"type": "@n8n/n8n-nodes-langchain.chatTrigger",
+			"typeVersion": 1.1,
+			"position": [0, 0],
+			"webhookId": "99982a9e-9af9-5e02-b0ea-1257a15ffe45"
+		},
+		{
+			"parameters": {
+				"options": {
+					"systemMessage": "You are a marketing assistant that manages branded short links with Short.io.\n\n- To shorten a URL, use the Create Short Link tool. Pass the full destination URL including https://. Only set a custom path if the user asks for one.\n- Always reply with the resulting shortURL.\n- To report on a link, use the Link Click Stats tool with the full short URL. Report totalClicks and humanClicks for the last 30 days.\n- Never invent short URLs or click numbers that a tool did not return."
+				}
+			},
+			"id": "c7af33d6-0528-5567-9b7d-b60939fd85a0",
+			"name": "Link Assistant",
+			"type": "@n8n/n8n-nodes-langchain.agent",
+			"typeVersion": 1.7,
+			"position": [240, 0]
+		},
+		{
+			"parameters": {
+				"model": {
+					"__rl": true,
+					"mode": "list",
+					"value": "gpt-4o-mini"
+				},
+				"options": {}
+			},
+			"id": "ab5675ca-9e93-5544-a0bf-d37de91196c6",
+			"name": "OpenAI Chat Model",
+			"type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+			"typeVersion": 1.2,
+			"position": [100, 220]
+		},
+		{
+			"parameters": {
+				"descriptionType": "manual",
+				"toolDescription": "Create a branded short link on Short.io. Input: the destination URL, and optionally a custom path (slug) and a title. Returns the link, including shortURL and idString. If a link already exists for the URL, it is returned instead.",
+				"resource": "link",
+				"operation": "create",
+				"domain": {
+					"__rl": true,
+					"mode": "id",
+					"value": "123456"
+				},
+				"originalURL": "={{ $fromAI('originalURL', 'The full destination URL to shorten, for example https://example.com/spring-sale', 'string') }}",
+				"additionalFields": {
+					"path": "={{ $fromAI('path', 'Optional custom slug for the short link, without a leading slash. Empty string for an auto-generated one.', 'string') }}",
+					"title": "={{ $fromAI('title', 'A short human-readable title for the link', 'string') }}"
+				}
+			},
+			"id": "7c0ebe23-41f2-59ee-910e-5cd1a00e7248",
+			"name": "Create Short Link",
+			"type": "@t0mer/n8n-nodes-shortio.shortIoTool",
+			"typeVersion": 1,
+			"position": [320, 220]
+		},
+		{
+			"parameters": {
+				"descriptionType": "manual",
+				"toolDescription": "Get click statistics for one Short.io link over the last 30 days. Input: the full short URL, for example https://short.example/spring. Returns totalClicks and humanClicks.",
+				"resource": "statistics",
+				"operation": "getLinkStatistics",
+				"link": {
+					"__rl": true,
+					"mode": "url",
+					"value": "={{ $fromAI('shortURL', 'The full short URL of the link, for example https://short.example/spring', 'string') }}"
+				},
+				"period": "last30",
+				"options": {
+					"skipTops": true
+				}
+			},
+			"id": "4ae1599c-98f2-585d-a5fa-be13d8090a2e",
+			"name": "Link Click Stats",
+			"type": "@t0mer/n8n-nodes-shortio.shortIoTool",
+			"typeVersion": 1,
+			"position": [540, 220]
+		}
+	],
+	"connections": {
+		"When Chat Message Received": {
+			"main": [
+				[
+					{
+						"node": "Link Assistant",
+						"type": "main",
+						"index": 0
+					}
+				]
+			]
+		},
+		"OpenAI Chat Model": {
+			"ai_languageModel": [
+				[
+					{
+						"node": "Link Assistant",
+						"type": "ai_languageModel",
+						"index": 0
+					}
+				]
+			]
+		},
+		"Create Short Link": {
+			"ai_tool": [
+				[
+					{
+						"node": "Link Assistant",
+						"type": "ai_tool",
+						"index": 0
+					}
+				]
+			]
+		},
+		"Link Click Stats": {
+			"ai_tool": [
+				[
+					{
+						"node": "Link Assistant",
+						"type": "ai_tool",
+						"index": 0
+					}
+				]
+			]
+		}
+	},
+	"pinData": {},
+	"settings": {
+		"executionOrder": "v1"
+	}
+}

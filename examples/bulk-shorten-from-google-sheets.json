@@ -1,0 +1,248 @@
+{
+	"name": "Short.io: bulk-shorten URLs from Google Sheets",
+	"nodes": [
+		{
+			"parameters": {},
+			"id": "70dd0292-8063-5683-a0c3-c4fddd8bf7de",
+			"name": "Start",
+			"type": "n8n-nodes-base.manualTrigger",
+			"typeVersion": 1,
+			"position": [0, 0]
+		},
+		{
+			"parameters": {
+				"documentId": {
+					"__rl": true,
+					"mode": "id",
+					"value": "YOUR_SPREADSHEET_ID"
+				},
+				"sheetName": {
+					"__rl": true,
+					"mode": "name",
+					"value": "Links"
+				},
+				"options": {}
+			},
+			"id": "d262cd6e-a894-5ef0-a0bb-d5457c1df109",
+			"name": "Read Rows",
+			"type": "n8n-nodes-base.googleSheets",
+			"typeVersion": 4.5,
+			"position": [220, 0]
+		},
+		{
+			"parameters": {
+				"conditions": {
+					"options": {
+						"caseSensitive": true,
+						"leftValue": "",
+						"typeValidation": "strict"
+					},
+					"conditions": [
+						{
+							"id": "dd0816f3-f0a7-5a28-ac3d-4ae5e2016534",
+							"leftValue": "={{ $json.short_url }}",
+							"rightValue": "",
+							"operator": {
+								"type": "string",
+								"operation": "empty",
+								"singleValue": true
+							}
+						},
+						{
+							"id": "83b953b5-7553-572b-a262-085475972e1b",
+							"leftValue": "={{ $json.url }}",
+							"rightValue": "",
+							"operator": {
+								"type": "string",
+								"operation": "notEmpty",
+								"singleValue": true
+							}
+						}
+					],
+					"combinator": "and"
+				},
+				"options": {}
+			},
+			"id": "82b80c3a-7e71-5d94-9c70-c18b3b0c29bd",
+			"name": "Only Rows Without Short URL",
+			"type": "n8n-nodes-base.filter",
+			"typeVersion": 2,
+			"position": [440, 0]
+		},
+		{
+			"parameters": {
+				"resource": "link",
+				"operation": "createMany",
+				"domain": {
+					"__rl": true,
+					"mode": "id",
+					"value": "123456"
+				},
+				"originalURL": "={{ $json.url }}",
+				"additionalFields": {
+					"title": "={{ $json.title }}",
+					"tags": "={{ $json.campaign }}",
+					"utmCampaign": "={{ $json.campaign }}",
+					"utmMedium": "social",
+					"utmSource": "newsletter"
+				}
+			},
+			"id": "5b66276c-be4c-5cad-abdf-ef4729806d1e",
+			"name": "Create Short Links",
+			"type": "@t0mer/n8n-nodes-shortio.shortIo",
+			"typeVersion": 1,
+			"position": [660, 0],
+			"onError": "continueRegularOutput"
+		},
+		{
+			"parameters": {
+				"operation": "update",
+				"documentId": {
+					"__rl": true,
+					"mode": "id",
+					"value": "YOUR_SPREADSHEET_ID"
+				},
+				"sheetName": {
+					"__rl": true,
+					"mode": "name",
+					"value": "Links"
+				},
+				"columns": {
+					"mappingMode": "defineBelow",
+					"value": {
+						"row_number": "={{ $('Read Rows').item.json.row_number }}",
+						"short_url": "={{ $json.shortURL ?? '' }}",
+						"error": "={{ $json.error ?? '' }}"
+					},
+					"matchingColumns": ["row_number"],
+					"schema": [
+						{
+							"id": "url",
+							"displayName": "url",
+							"required": false,
+							"defaultMatch": false,
+							"display": true,
+							"type": "string",
+							"canBeUsedToMatch": true
+						},
+						{
+							"id": "title",
+							"displayName": "title",
+							"required": false,
+							"defaultMatch": false,
+							"display": true,
+							"type": "string",
+							"canBeUsedToMatch": true
+						},
+						{
+							"id": "campaign",
+							"displayName": "campaign",
+							"required": false,
+							"defaultMatch": false,
+							"display": true,
+							"type": "string",
+							"canBeUsedToMatch": true
+						},
+						{
+							"id": "short_url",
+							"displayName": "short_url",
+							"required": false,
+							"defaultMatch": false,
+							"display": true,
+							"type": "string",
+							"canBeUsedToMatch": true
+						},
+						{
+							"id": "error",
+							"displayName": "error",
+							"required": false,
+							"defaultMatch": false,
+							"display": true,
+							"type": "string",
+							"canBeUsedToMatch": true
+						},
+						{
+							"id": "row_number",
+							"displayName": "row_number",
+							"required": false,
+							"defaultMatch": false,
+							"display": true,
+							"type": "number",
+							"canBeUsedToMatch": true,
+							"readOnly": true,
+							"removed": false
+						}
+					]
+				},
+				"options": {}
+			},
+			"id": "748461de-e18a-52a9-af96-92c4f1858514",
+			"name": "Write Short URL Back",
+			"type": "n8n-nodes-base.googleSheets",
+			"typeVersion": 4.5,
+			"position": [880, 0]
+		},
+		{
+			"parameters": {
+				"content": "## Bulk-shorten URLs from a sheet\nThe sheet **Links** has the columns `url`, `title`, `campaign`, `short_url` and `error`. Rows with a `url` and an empty `short_url` are shortened in one **Create Many** bulk call per 1000 links, and the short URL is written back to the same row.\n\nReplace `YOUR_SPREADSHEET_ID` and the domain ID `123456` (or pick your domain from the list). With **On Error: Continue**, a link that fails gets its message in the `error` column instead of stopping the run.",
+				"height": 260,
+				"width": 520
+			},
+			"id": "719493c6-cbc1-5ca1-8eef-a57c659245a1",
+			"name": "Note",
+			"type": "n8n-nodes-base.stickyNote",
+			"typeVersion": 1,
+			"position": [-60, -300]
+		}
+	],
+	"connections": {
+		"Start": {
+			"main": [
+				[
+					{
+						"node": "Read Rows",
+						"type": "main",
+						"index": 0
+					}
+				]
+			]
+		},
+		"Read Rows": {
+			"main": [
+				[
+					{
+						"node": "Only Rows Without Short URL",
+						"type": "main",
+						"index": 0
+					}
+				]
+			]
+		},
+		"Only Rows Without Short URL": {
+			"main": [
+				[
+					{
+						"node": "Create Short Links",
+						"type": "main",
+						"index": 0
+					}
+				]
+			]
+		},
+		"Create Short Links": {
+			"main": [
+				[
+					{
+						"node": "Write Short URL Back",
+						"type": "main",
+						"index": 0
+					}
+				]
+			]
+		}
+	},
+	"pinData": {},
+	"settings": {
+		"executionOrder": "v1"
+	}
+}
