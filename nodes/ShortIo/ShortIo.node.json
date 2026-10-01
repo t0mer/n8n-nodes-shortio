@@ -2,7 +2,7 @@
 	"node": "@t0mer/n8n-nodes-shortio.shortIo",
 	"nodeVersion": "1.0",
 	"codexVersion": "1.0",
-	"categories": ["Marketing", "Utility"],
+	"categories": ["Marketing & Content", "Utility"],
 	"resources": {
 		"credentialDocumentation": [
 			{
